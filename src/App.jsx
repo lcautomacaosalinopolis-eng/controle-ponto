@@ -6,24 +6,17 @@ function App() {
   const [usuarios, setUsuarios] = useState([])
   const [pontos, setPontos] = useState([])
   const [usuarioLogado, setUsuarioLogado] = useState(null)
-
   const [empresaSelecionada, setEmpresaSelecionada] = useState(null)
-
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [mensagem, setMensagem] = useState('')
-
   const [novaEmpresa, setNovaEmpresa] = useState('')
   const [emailMasterEmpresa, setEmailMasterEmpresa] = useState('')
   const [senhaMasterEmpresa, setSenhaMasterEmpresa] = useState('')
-
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
-
-  const [dataRelatorio, setDataRelatorio] = useState(
-    new Date().toISOString().split('T')[0]
-  )
+  const [dataRelatorio, setDataRelatorio] = useState(new Date().toISOString().split('T')[0])
 
   async function carregarEmpresas() {
     const { data } = await supabase.from('empresas').select('*').order('id')
@@ -36,11 +29,7 @@ function App() {
   }
 
   async function carregarPontos() {
-    const { data } = await supabase
-      .from('pontos')
-      .select('*')
-      .order('id', { ascending: false })
-
+    const { data } = await supabase.from('pontos').select('*').order('id', { ascending: false })
     if (data) setPontos(data)
   }
 
@@ -51,26 +40,12 @@ function App() {
 
     const canal = supabase
       .channel('tempo-real')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pontos' },
-        async () => carregarPontos()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'usuarios' },
-        async () => carregarUsuarios()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'empresas' },
-        async () => carregarEmpresas()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pontos' }, async () => carregarPontos())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, async () => carregarUsuarios())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'empresas' }, async () => carregarEmpresas())
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(canal)
-    }
+    return () => supabase.removeChannel(canal)
   }, [])
 
   function mostrarMensagem(texto) {
@@ -94,18 +69,25 @@ function App() {
     })
   }
 
+  function formatarHoraServidor(dataHora, fallback) {
+    if (!dataHora) return fallback || '-'
+
+    return new Date(dataHora).toLocaleTimeString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  }
+
   async function login() {
-    if (
-      email.trim().toLowerCase() === 'programador@lc.com' &&
-      senha === '@Lc135910#'
-    ) {
+    if (email.trim().toLowerCase() === 'programador@lc.com' && senha === '@Lc135910#') {
       setUsuarioLogado({
         nome: 'PROGRAMADOR',
         tipo: 'programador',
         email: 'programador@lc.com',
         empresa_id: null,
       })
-
       setEmail('')
       setSenha('')
       mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
@@ -127,7 +109,6 @@ function App() {
         empresa_id: empresaMaster.id,
         empresa_nome: empresaMaster.nome,
       })
-
       setEmpresaSelecionada(empresaMaster.id)
       setEmail('')
       setSenha('')
@@ -136,9 +117,7 @@ function App() {
     }
 
     const usuario = usuarios.find(
-      (u) =>
-        u.email?.toLowerCase() === email.trim().toLowerCase() &&
-        u.senha === senha
+      (u) => u.email?.toLowerCase() === email.trim().toLowerCase() && u.senha === senha
     )
 
     if (!usuario) {
@@ -187,7 +166,6 @@ function App() {
     setEmailMasterEmpresa('')
     setSenhaMasterEmpresa('')
     await carregarEmpresas()
-
     mostrarMensagem('Empresa criada com sucesso!')
   }
 
@@ -197,10 +175,7 @@ function App() {
       return
     }
 
-    const empresaId =
-      usuarioLogado.tipo === 'programador'
-        ? empresaSelecionada
-        : usuarioLogado.empresa_id
+    const empresaId = usuarioLogado.tipo === 'programador' ? empresaSelecionada : usuarioLogado.empresa_id
 
     if (!empresaId) {
       mostrarMensagem('Selecione uma empresa antes de cadastrar funcionário.')
@@ -227,7 +202,6 @@ function App() {
     setNovoEmail('')
     setNovaSenha('')
     await carregarUsuarios()
-
     mostrarMensagem('Funcionário cadastrado com sucesso!')
   }
 
@@ -237,7 +211,6 @@ function App() {
 
     await supabase.from('usuarios').delete().eq('id', id)
     await carregarUsuarios()
-
     mostrarMensagem('Funcionário excluído.')
   }
 
@@ -288,14 +261,11 @@ function App() {
       return usuarios.filter((usuario) => usuario.empresa_id === empresaSelecionada)
     }
 
-    return usuarios.filter(
-      (usuario) => usuario.empresa_id === usuarioLogado?.empresa_id
-    )
+    return usuarios.filter((usuario) => usuario.empresa_id === usuarioLogado?.empresa_id)
   }
 
   function gerarRelatorio(empresaId = usuarioLogado?.empresa_id) {
-    const idEmpresa =
-      usuarioLogado?.tipo === 'programador' ? empresaSelecionada : empresaId
+    const idEmpresa = usuarioLogado?.tipo === 'programador' ? empresaSelecionada : empresaId
 
     const registros = pontos.filter((p) => {
       if (!idEmpresa) return false
@@ -313,8 +283,13 @@ function App() {
         }
       }
 
-      if (r.tipo === 'Entrada') agrupado[r.nome].entrada = r.hora
-      if (r.tipo === 'Saída') agrupado[r.nome].saida = r.hora
+      if (r.tipo === 'Entrada') {
+        agrupado[r.nome].entrada = formatarHoraServidor(r.registrado_em, r.hora)
+      }
+
+      if (r.tipo === 'Saída') {
+        agrupado[r.nome].saida = formatarHoraServidor(r.registrado_em, r.hora)
+      }
     })
 
     return Object.keys(agrupado).map((nome) => ({
@@ -389,20 +364,9 @@ function App() {
         <>
           <h2>Login do sistema</h2>
 
-          <input
-            style={inputStyle}
-            placeholder="E-mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
+          <input style={inputStyle} placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
 
-          <input
-            style={inputStyle}
-            type="password"
-            placeholder="Senha"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-          />
+          <input style={inputStyle} type="password" placeholder="Senha" value={senha} onChange={(e) => setSenha(e.target.value)} />
 
           <button style={buttonStyle} onClick={login}>
             Entrar
@@ -414,9 +378,7 @@ function App() {
             Usuário logado: <strong>{usuarioLogado.nome}</strong>
           </h2>
 
-          {usuarioLogado.empresa_nome && (
-            <h3>Empresa: {usuarioLogado.empresa_nome}</h3>
-          )}
+          {usuarioLogado.empresa_nome && <h3>Empresa: {usuarioLogado.empresa_nome}</h3>}
 
           <button style={buttonStyle} onClick={sair}>
             Sair
@@ -432,26 +394,11 @@ function App() {
 
               <h2>Criar Empresa</h2>
 
-              <input
-                style={inputStyle}
-                placeholder="Nome da empresa"
-                value={novaEmpresa}
-                onChange={(e) => setNovaEmpresa(e.target.value)}
-              />
+              <input style={inputStyle} placeholder="Nome da empresa" value={novaEmpresa} onChange={(e) => setNovaEmpresa(e.target.value)} />
 
-              <input
-                style={inputStyle}
-                placeholder="E-mail master da empresa"
-                value={emailMasterEmpresa}
-                onChange={(e) => setEmailMasterEmpresa(e.target.value)}
-              />
+              <input style={inputStyle} placeholder="E-mail master da empresa" value={emailMasterEmpresa} onChange={(e) => setEmailMasterEmpresa(e.target.value)} />
 
-              <input
-                style={inputStyle}
-                placeholder="Senha master da empresa"
-                value={senhaMasterEmpresa}
-                onChange={(e) => setSenhaMasterEmpresa(e.target.value)}
-              />
+              <input style={inputStyle} placeholder="Senha master da empresa" value={senhaMasterEmpresa} onChange={(e) => setSenhaMasterEmpresa(e.target.value)} />
 
               <button style={buttonStyle} onClick={criarEmpresa}>
                 Criar Empresa
@@ -466,17 +413,13 @@ function App() {
                   key={empresa.id}
                   onClick={() => setEmpresaSelecionada(empresa.id)}
                   style={{
-                    background:
-                      empresaSelecionada === empresa.id ? '#dbeafe' : '#f3f3f3',
+                    background: empresaSelecionada === empresa.id ? '#dbeafe' : '#f3f3f3',
                     padding: '20px',
                     borderRadius: '10px',
                     marginBottom: '10px',
                     textAlign: 'left',
                     cursor: 'pointer',
-                    border:
-                      empresaSelecionada === empresa.id
-                        ? '2px solid #1d4ed8'
-                        : '2px solid transparent',
+                    border: empresaSelecionada === empresa.id ? '2px solid #1d4ed8' : '2px solid transparent',
                   }}
                 >
                   <strong>{empresa.nome}</strong>
@@ -496,34 +439,17 @@ function App() {
             </>
           )}
 
-          {(usuarioLogado.tipo === 'master' ||
-            usuarioLogado.tipo === 'programador') && (
+          {(usuarioLogado.tipo === 'master' || usuarioLogado.tipo === 'programador') && (
             <>
-              {(usuarioLogado.tipo === 'master' ||
-                (usuarioLogado.tipo === 'programador' && empresaSelecionada)) && (
+              {(usuarioLogado.tipo === 'master' || (usuarioLogado.tipo === 'programador' && empresaSelecionada)) && (
                 <>
                   <h2>Cadastrar Funcionário</h2>
 
-                  <input
-                    style={inputStyle}
-                    placeholder="Nome"
-                    value={novoNome}
-                    onChange={(e) => setNovoNome(e.target.value)}
-                  />
+                  <input style={inputStyle} placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
 
-                  <input
-                    style={inputStyle}
-                    placeholder="E-mail"
-                    value={novoEmail}
-                    onChange={(e) => setNovoEmail(e.target.value)}
-                  />
+                  <input style={inputStyle} placeholder="E-mail" value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} />
 
-                  <input
-                    style={inputStyle}
-                    placeholder="Senha"
-                    value={novaSenha}
-                    onChange={(e) => setNovaSenha(e.target.value)}
-                  />
+                  <input style={inputStyle} placeholder="Senha" value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} />
 
                   <button style={buttonStyle} onClick={cadastrarFuncionario}>
                     Cadastrar
@@ -563,10 +489,7 @@ function App() {
                     <br />
                     <br />
 
-                    <button
-                      style={{ ...buttonStyle, backgroundColor: '#dc2626' }}
-                      onClick={() => excluirFuncionario(u.id)}
-                    >
+                    <button style={{ ...buttonStyle, backgroundColor: '#dc2626' }} onClick={() => excluirFuncionario(u.id)}>
                       Excluir
                     </button>
                   </div>
@@ -578,17 +501,9 @@ function App() {
                 Relatório
               </h1>
 
-              <input
-                type="date"
-                style={inputStyle}
-                value={dataRelatorio}
-                onChange={(e) => setDataRelatorio(e.target.value)}
-              />
+              <input type="date" style={inputStyle} value={dataRelatorio} onChange={(e) => setDataRelatorio(e.target.value)} />
 
-              <button
-                style={{ ...buttonStyle, backgroundColor: '#16a34a' }}
-                onClick={exportarRelatorioPDF}
-              >
+              <button style={{ ...buttonStyle, backgroundColor: '#16a34a' }} onClick={exportarRelatorioPDF}>
                 Exportar PDF
               </button>
 
@@ -597,17 +512,11 @@ function App() {
               )}
 
               {empresasVisiveis()
-                .filter((empresa) =>
-                  usuarioLogado.tipo === 'programador'
-                    ? empresa.id === empresaSelecionada
-                    : true
-                )
+                .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
                 .map((empresa) => (
                   <div key={empresa.id}>
                     {usuarioLogado.tipo === 'programador' && (
-                      <h2 style={{ color: '#001f6b' }}>
-                        Empresa: {empresa.nome}
-                      </h2>
+                      <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
                     )}
 
                     {gerarRelatorio(empresa.id).map((r, index) => (
