@@ -304,9 +304,128 @@ function App() {
     }))
   }
 
-  function exportarRelatorioPDF() {
-    window.print()
-  }
+ function exportarRelatorioPDF() {
+
+  const empresaAtual = empresas.find(
+    (empresa) => empresa.id === empresaSelecionada
+  )
+
+  const registros = gerarRelatorio(empresaSelecionada)
+
+  const janela = window.open(
+    '',
+    '',
+    'width=900,height=700'
+  )
+
+  let html = `
+    <html>
+
+      <head>
+
+        <title>
+          Relatório de Ponto
+        </title>
+
+        <style>
+
+          body{
+            font-family:Arial;
+            padding:30px;
+          }
+
+          h1,h2{
+            text-align:center;
+            color:#001f6b;
+          }
+
+          table{
+            width:100%;
+            border-collapse:collapse;
+            margin-top:25px;
+          }
+
+          th,td{
+            border:1px solid #999;
+            padding:10px;
+            text-align:center;
+          }
+
+          th{
+            background:#001f6b;
+            color:white;
+          }
+
+          .rodape{
+            margin-top:40px;
+            text-align:center;
+            font-size:12px;
+            letter-spacing:2px;
+            color:#666;
+          }
+
+        </style>
+
+      </head>
+
+      <body>
+
+        <h1>
+          Relatório de Ponto
+        </h1>
+
+        <h2>
+          ${empresaAtual ? empresaAtual.nome : ''}
+        </h2>
+
+        <table>
+
+          <tr>
+            <th>Funcionário</th>
+            <th>Data</th>
+            <th>Entrada</th>
+            <th>Saída</th>
+            <th>Status</th>
+          </tr>
+  `
+
+  registros.forEach((r) => {
+
+    html += `
+      <tr>
+        <td>${r.nome}</td>
+        <td>${r.data}</td>
+        <td>${r.entrada || '-'}</td>
+        <td>${r.saida || '-'}</td>
+        <td>${r.status}</td>
+      </tr>
+    `
+  })
+
+  html += `
+
+        </table>
+
+        <div class="rodape">
+          DEVELOPED BY DINHO OLIVEIRA
+        </div>
+
+      </body>
+
+    </html>
+  `
+
+  janela.document.write(html)
+
+  janela.document.close()
+
+  janela.focus()
+
+  setTimeout(() => {
+    janela.print()
+  }, 500)
+
+}
 
   const containerStyle = {
     maxWidth: '1000px',
