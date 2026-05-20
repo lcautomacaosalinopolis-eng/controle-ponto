@@ -17,6 +17,13 @@ function App() {
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
 const [salvarLogin, setSalvarLogin] = useState(false)
+const [funcionarioEditando, setFuncionarioEditando] = useState(null)
+
+const [editNome, setEditNome] = useState('')
+
+const [editEmail, setEditEmail] = useState('')
+
+const [editSenha, setEditSenha] = useState('')
   const [dataRelatorio, setDataRelatorio] = useState(new Date().toISOString().split('T')[0])
 
   async function carregarEmpresas() {
@@ -45,8 +52,21 @@ const [salvarLogin, setSalvarLogin] = useState(false)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, async () => carregarUsuarios())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'empresas' }, async () => carregarEmpresas())
       .subscribe()
+function abrirEdicaoFuncionario(usuario) {
 
-    return () => supabase.removeChannel(canal)
+  setFuncionarioEditando(usuario)
+
+  setEditNome(usuario.nome)
+
+  setEditEmail(usuario.email)
+
+  setEditSenha(usuario.senha)
+
+}
+
+return () => {
+  supabase.removeChannel(canal)
+}
   }, [])
 useEffect(() => {
 
@@ -509,6 +529,75 @@ if (salvarLogin) {
     cursor: 'pointer',
     marginBottom: '20px',
   }
+function abrirEdicaoFuncionario(usuario) {
+
+  setFuncionarioEditando(usuario)
+
+  setEditNome(usuario.nome)
+
+  setEditEmail(usuario.email)
+
+  setEditSenha(usuario.senha)
+
+  mostrarMensagem(
+    'Editando funcionário: ' + usuario.nome
+  )
+
+}
+async function salvarEdicaoFuncionario() {
+
+  if (
+    !editNome ||
+    !editEmail ||
+    !editSenha
+  ) {
+
+    mostrarMensagem(
+      'Preencha todos os campos.'
+    )
+
+    return
+  }
+
+  const { error } = await supabase
+    .from('usuarios')
+    .update({
+
+      nome: editNome,
+
+      email: editEmail.toLowerCase(),
+
+      senha: editSenha,
+
+    })
+    .eq(
+      'id',
+      funcionarioEditando.id
+    )
+
+  if (error) {
+
+    mostrarMensagem(
+      'Erro ao alterar funcionário.'
+    )
+
+    return
+  }
+
+  setFuncionarioEditando(null)
+
+  setEditNome('')
+
+  setEditEmail('')
+
+  setEditSenha('')
+
+  await carregarUsuarios()
+
+  mostrarMensagem(
+    'Funcionário alterado com sucesso.'
+  )
+}
 
   return (
     <div style={containerStyle}>
@@ -683,11 +772,74 @@ if (salvarLogin) {
                     <button style={{ ...buttonStyle, backgroundColor: '#dc2626' }} onClick={() => excluirFuncionario(u.id)}>
                       Excluir
                     </button>
-                  </div>
-                ))}
+<br />
 
-              <hr />
+<button
+  style={{
+    ...buttonStyle,
+    backgroundColor: '#2563eb',
+  }}
+  onClick={() => abrirEdicaoFuncionario(u)}
+>
+  Editar
+</button>
+{funcionarioEditando && funcionarioEditando.id === u.id && (
+  <div
+    style={{
+      background: '#dbeafe',
+      padding: '20px',
+      borderRadius: '10px',
+      marginTop: '20px',
+      marginBottom: '20px',
+    }}
+  >
+    <h2>Editar Funcionário</h2>
 
+    <input
+      style={inputStyle}
+      placeholder="Nome"
+      value={editNome}
+      onChange={(e) => setEditNome(e.target.value)}
+    />
+
+    <input
+      style={inputStyle}
+      placeholder="E-mail"
+      value={editEmail}
+      onChange={(e) => setEditEmail(e.target.value)}
+    />
+
+    <input
+      style={inputStyle}
+      placeholder="Senha"
+      value={editSenha}
+      onChange={(e) => setEditSenha(e.target.value)}
+    />
+
+    <button
+      style={buttonStyle}
+      onClick={salvarEdicaoFuncionario}
+    >
+      Salvar Alterações
+    </button>
+
+    <button
+      style={{
+        ...buttonStyle,
+        backgroundColor: '#6b7280',
+        marginLeft: '10px',
+      }}
+      onClick={() => setFuncionarioEditando(null)}
+    >
+      Cancelar
+    </button>
+ </div>
+)}
+
+</div>
+))}
+
+<hr />
               <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
                 Relatório
               </h1>
