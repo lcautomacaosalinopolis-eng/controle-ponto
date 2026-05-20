@@ -41,15 +41,39 @@ function App() {
   useEffect(() => {
     carregarUsuarios()
     carregarPontos()
-  }, [])
 
-  useEffect(() => {
-    const tempo = setInterval(() => {
-      carregarPontos()
-      carregarUsuarios()
-    }, 2000)
+    const canal = supabase
+      .channel('tempo-real')
 
-    return () => clearInterval(tempo)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pontos',
+        },
+        async () => {
+          await carregarPontos()
+        }
+      )
+
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'usuarios',
+        },
+        async () => {
+          await carregarUsuarios()
+        }
+      )
+
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
   }, [])
 
   function mostrarMensagem(texto) {
@@ -190,7 +214,7 @@ function App() {
 
     await carregarPontos()
 
-    mostrarMensagem(`${tipo} registrada com sucesso!`)
+    mostrarMensagem(`✅ ${tipo} registrada com sucesso!`)
   }
 
   function gerarRelatorio() {
@@ -272,12 +296,12 @@ function App() {
       {mensagem && (
         <div
           style={{
-            background: '#001f6b',
+            background: '#16a34a',
             color: '#fff',
             padding: '20px',
             borderRadius: '15px',
             marginBottom: '20px',
-            fontSize: '22px',
+            fontSize: '24px',
             fontWeight: 'bold',
           }}
         >
