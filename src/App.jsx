@@ -13,13 +13,19 @@ function App() {
   const [novaSenha, setNovaSenha] = useState('')
 
   const [pontos, setPontos] = useState([])
+
   const [mensagem, setMensagem] = useState('')
+
   const [dataRelatorio, setDataRelatorio] = useState(
     new Date().toISOString().split('T')[0]
   )
 
   async function carregarUsuarios() {
-    const { data } = await supabase.from('usuarios').select('*')
+    const { data } = await supabase
+      .from('usuarios')
+      .select('*')
+      .order('id')
+
     if (data) setUsuarios(data)
   }
 
@@ -37,9 +43,21 @@ function App() {
     carregarPontos()
   }, [])
 
+  useEffect(() => {
+    const tempo = setInterval(() => {
+      carregarPontos()
+      carregarUsuarios()
+    }, 2000)
+
+    return () => clearInterval(tempo)
+  }, [])
+
   function mostrarMensagem(texto) {
     setMensagem(texto)
-    setTimeout(() => setMensagem(''), 4000)
+
+    setTimeout(() => {
+      setMensagem('')
+    }, 4000)
   }
 
   function hojeISO() {
@@ -54,6 +72,7 @@ function App() {
     return new Date().toLocaleTimeString('pt-BR', {
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
     })
   }
 
@@ -64,20 +83,18 @@ function App() {
         tipo: 'master',
         email,
       })
+
       return
     }
 
     const usuario = usuarios.find(
-      (u) => u.email === email && u.senha === senha
+      (u) =>
+        u.email.toLowerCase() === email.toLowerCase() &&
+        u.senha === senha
     )
 
     if (!usuario) {
-      mostrarMensagem('E-mail ou senha incorretos.')
-      return
-    }
-
-    if (usuario.ativo === false) {
-      mostrarMensagem('Usuário bloqueado. Procure o gerente.')
+      mostrarMensagem('Usuário não encontrado.')
       return
     }
 
@@ -94,41 +111,66 @@ function App() {
       return
     }
 
-    await supabase.from('usuarios').insert([
+    const { error } = await supabase.from('usuarios').insert([
       {
         nome: novoNome,
         email: novoEmail,
         senha: novaSenha,
         tipo: 'funcionario',
-        ativo: true,
       },
     ])
+
+    if (error) {
+      mostrarMensagem('Erro ao cadastrar funcionário.')
+      return
+    }
 
     setNovoNome('')
     setNovoEmail('')
     setNovaSenha('')
 
-    await carregarUsuarios()
-    mostrarMensagem('Funcionário cadastrado com sucesso.')
+    carregarUsuarios()
+
+    mostrarMensagem('Funcionário cadastrado com sucesso!')
   }
 
   async function excluirFuncionario(id) {
-    const confirmar = confirm('Deseja realmente excluir este funcionário?')
+    const confirmar = confirm(
+      'Deseja realmente excluir este funcionário?'
+    )
+
     if (!confirmar) return
 
     await supabase.from('usuarios').delete().eq('id', id)
-    await carregarUsuarios()
-    mostrarMensagem('Funcionário excluído com sucesso.')
+
+    carregarUsuarios()
+
+    mostrarMensagem('Funcionário excluído.')
   }
 
   async function registrarPonto() {
     const registrosHoje = pontos.filter(
       (p) =>
         p.usuario_id === usuarioLogado.id &&
-        (p.data_iso === hojeISO() || p.data === hojeBR())
+        p.data_iso === hojeISO()
     )
 
-    const ultimo = registrosHoje[0]?.tipo === 'Entrada' ? 'Saída' : 'Entrada'
+    const entrada = registrosHoje.find(
+      (p) => p.tipo === 'Entrada'
+    )
+
+    const saida = registrosHoje.find(
+      (p) => p.tipo === 'Saída'
+    )
+
+    if (entrada && saida) {
+      mostrarMensagem(
+        'Você já registrou entrada e saída hoje.'
+      )
+      return
+    }
+
+    const tipo = entrada ? 'Saída' : 'Entrada'
 
     const { error } = await supabase.from('pontos').insert([
       {
@@ -137,8 +179,7 @@ function App() {
         data: hojeBR(),
         data_iso: hojeISO(),
         hora: horaAtual(),
-        tipo: ultimo,
-        aparelho: navigator.userAgent,
+        tipo,
       },
     ])
 
@@ -148,20 +189,14 @@ function App() {
     }
 
     await carregarPontos()
-    mostrarMensagem(`${ultimo} registrada com sucesso!`)
+
+    mostrarMensagem(`${tipo} registrada com sucesso!`)
   }
 
   function gerarRelatorio() {
-    const registros = pontos.filter((p) => {
-      if (p.data_iso) return p.data_iso === dataRelatorio
-
-      if (p.data && p.data.includes('/')) {
-        const [dia, mes, ano] = p.data.split('/')
-        return `${ano}-${mes}-${dia}` === dataRelatorio
-      }
-
-      return false
-    })
+    const registros = pontos.filter(
+      (p) => p.data_iso === dataRelatorio
+    )
 
     const agrupado = {}
 
@@ -174,8 +209,13 @@ function App() {
         }
       }
 
-      if (r.tipo === 'Entrada') agrupado[r.nome].entrada = r.hora
-      if (r.tipo === 'Saída') agrupado[r.nome].saida = r.hora
+      if (r.tipo === 'Entrada') {
+        agrupado[r.nome].entrada = r.hora
+      }
+
+      if (r.tipo === 'Saída') {
+        agrupado[r.nome].saida = r.hora
+      }
     })
 
     return Object.keys(agrupado).map((nome) => ({
@@ -184,63 +224,15 @@ function App() {
       entrada: agrupado[nome].entrada,
       saida: agrupado[nome].saida,
       status:
-        agrupado[nome].entrada && agrupado[nome].saida
+        agrupado[nome].entrada &&
+        agrupado[nome].saida
           ? 'Completo'
           : 'Pendente',
     }))
   }
 
   function exportarRelatorioPDF() {
-    const relatorio = gerarRelatorio()
-    const janela = window.open('', '', 'width=900,height=700')
-
-    let html = `
-      <html>
-        <head>
-          <title>Relatório de Ponto</title>
-          <style>
-            body { font-family: Arial; padding: 20px; }
-            h1 { text-align: center; color: #001f6b; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
-            th { background: #001f6b; color: white; }
-            .rodape { margin-top: 40px; text-align: center; font-size: 12px; color: #666; letter-spacing: 2px; }
-          </style>
-        </head>
-        <body>
-          <h1>Relatório de Ponto</h1>
-          <table>
-            <tr>
-              <th>Funcionário</th>
-              <th>Data</th>
-              <th>Entrada</th>
-              <th>Saída</th>
-              <th>Status</th>
-            </tr>
-    `
-
-    relatorio.forEach((r) => {
-      html += `
-        <tr>
-          <td>${r.nome}</td>
-          <td>${r.data}</td>
-          <td>${r.entrada}</td>
-          <td>${r.saida}</td>
-          <td>${r.status}</td>
-        </tr>
-      `
-    })
-
-    html += `
-          </table>
-          <div class="rodape">DEVELOPED BY DINHO OLIVEIRA</div>
-        </body>
-      </html>
-    `
-
-    janela.document.write(html)
-    janela.document.close()
-    janela.print()
+    window.print()
   }
 
   const relatorio = gerarRelatorio()
@@ -280,21 +272,25 @@ function App() {
       {mensagem && (
         <div
           style={{
-            backgroundColor: '#001f6b',
+            background: '#001f6b',
             color: '#fff',
             padding: '20px',
             borderRadius: '15px',
-            marginBottom: '25px',
+            marginBottom: '20px',
             fontSize: '22px',
             fontWeight: 'bold',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
           }}
         >
           {mensagem}
         </div>
       )}
 
-      <h1 style={{ fontSize: '60px', color: '#0b1633' }}>
+      <h1
+        style={{
+          fontSize: '60px',
+          color: '#0b1633',
+        }}
+      >
         Controle de Ponto
       </h1>
 
@@ -324,7 +320,8 @@ function App() {
       ) : (
         <>
           <h2>
-            Usuário logado: <strong>{usuarioLogado.nome}</strong>
+            Usuário logado:{' '}
+            <strong>{usuarioLogado.nome}</strong>
           </h2>
 
           <button style={buttonStyle} onClick={sair}>
@@ -358,34 +355,53 @@ function App() {
                 onChange={(e) => setNovaSenha(e.target.value)}
               />
 
-              <button style={buttonStyle} onClick={cadastrarFuncionario}>
+              <button
+                style={buttonStyle}
+                onClick={cadastrarFuncionario}
+              >
                 Cadastrar
               </button>
 
-              <h2>Funcionários</h2>
+              <h1
+                style={{
+                  color: '#1d4ed8',
+                  marginTop: '50px',
+                }}
+              >
+                Funcionários
+              </h1>
 
               {usuarios.map((u) => (
                 <div
                   key={u.id}
                   style={{
                     background: '#f3f3f3',
-                    padding: '15px',
-                    marginBottom: '10px',
+                    padding: '20px',
                     borderRadius: '10px',
+                    marginBottom: '10px',
                   }}
                 >
                   <strong>{u.nome}</strong>
+
                   <br />
-                  E-mail: {u.email}
+
+                  {u.email}
+
                   <br />
+
                   Senha: {u.senha}
 
                   <br />
                   <br />
 
                   <button
-                    style={{ ...buttonStyle, backgroundColor: '#dc2626' }}
-                    onClick={() => excluirFuncionario(u.id)}
+                    style={{
+                      ...buttonStyle,
+                      backgroundColor: '#dc2626',
+                    }}
+                    onClick={() =>
+                      excluirFuncionario(u.id)
+                    }
                   >
                     Excluir
                   </button>
@@ -394,17 +410,29 @@ function App() {
 
               <hr />
 
-              <h2>Relatório</h2>
+              <h1
+                style={{
+                  color: '#1d4ed8',
+                  marginTop: '50px',
+                }}
+              >
+                Relatório
+              </h1>
 
               <input
                 type="date"
                 style={inputStyle}
                 value={dataRelatorio}
-                onChange={(e) => setDataRelatorio(e.target.value)}
+                onChange={(e) =>
+                  setDataRelatorio(e.target.value)
+                }
               />
 
               <button
-                style={{ ...buttonStyle, backgroundColor: '#16a34a' }}
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: '#16a34a',
+                }}
                 onClick={exportarRelatorioPDF}
               >
                 Exportar PDF
@@ -415,20 +443,28 @@ function App() {
                   key={index}
                   style={{
                     background: '#f3f3f3',
-                    padding: '15px',
-                    marginBottom: '10px',
+                    padding: '20px',
                     borderRadius: '10px',
+                    marginBottom: '10px',
                     textAlign: 'left',
                   }}
                 >
                   <strong>{r.nome}</strong>
+
                   <br />
+
                   Data: {r.data}
+
                   <br />
-                  Entrada: {r.entrada}
+
+                  Entrada: {r.entrada || '-'}
+
                   <br />
-                  Saída: {r.saida}
+
+                  Saída: {r.saida || '-'}
+
                   <br />
+
                   Status: {r.status}
                 </div>
               ))}
@@ -437,11 +473,19 @@ function App() {
 
           {usuarioLogado.tipo !== 'master' && (
             <>
-              <h1 style={{ color: '#001f6b', marginTop: '40px' }}>
+              <h1
+                style={{
+                  color: '#001f6b',
+                  marginTop: '40px',
+                }}
+              >
                 Registrar Ponto
               </h1>
 
-              <button style={buttonStyle} onClick={registrarPonto}>
+              <button
+                style={buttonStyle}
+                onClick={registrarPonto}
+              >
                 Registrar Ponto
               </button>
             </>
@@ -452,7 +496,12 @@ function App() {
       <br />
       <br />
 
-      <p style={{ color: '#666', letterSpacing: '2px' }}>
+      <p
+        style={{
+          color: '#666',
+          letterSpacing: '2px',
+        }}
+      >
         DEVELOPED BY DINHO OLIVEIRA
       </p>
     </div>

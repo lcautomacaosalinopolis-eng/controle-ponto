@@ -1,0 +1,7 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="110" fill="#001f6b"/>
+  <circle cx="256" cy="210" r="95" fill="#ffffff"/>
+  <path d="M185 330c35 55 107 55 142 0" stroke="#ffffff" stroke-width="38" stroke-linecap="round" fill="none"/>
+  <text x="256" y="230" text-anchor="middle" font-size="92" font-family="Arial" font-weight="bold" fill="#001f6b">P</text>
+  <text x="256" y="420" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" fill="#ffffff">PONTO</text>
+</svg>
