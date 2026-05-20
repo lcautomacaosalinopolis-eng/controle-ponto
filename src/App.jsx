@@ -16,6 +16,7 @@ function App() {
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
+const [salvarLogin, setSalvarLogin] = useState(false)
   const [dataRelatorio, setDataRelatorio] = useState(new Date().toISOString().split('T')[0])
 
   async function carregarEmpresas() {
@@ -47,7 +48,23 @@ function App() {
 
     return () => supabase.removeChannel(canal)
   }, [])
+useEffect(() => {
 
+  const loginSalvo = localStorage.getItem(
+    'loginSalvo'
+  )
+
+  if (loginSalvo) {
+
+    const dados = JSON.parse(loginSalvo)
+
+    setEmail(dados.email || '')
+    setSenha(dados.senha || '')
+
+    setSalvarLogin(true)
+  }
+
+}, [])
   function mostrarMensagem(texto) {
     setMensagem(texto)
     setTimeout(() => setMensagem(''), 4000)
@@ -88,6 +105,23 @@ function App() {
         email: 'programador@lc.com',
         empresa_id: null,
       })
+if (salvarLogin) {
+
+  localStorage.setItem(
+    'loginSalvo',
+    JSON.stringify({
+      email,
+      senha,
+    })
+  )
+
+} else {
+
+  localStorage.removeItem(
+    'loginSalvo'
+  )
+
+}
       setEmail('')
       setSenha('')
       mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
@@ -137,10 +171,29 @@ function App() {
     mostrarMensagem('Login realizado com sucesso.')
   }
 
-  function sair() {
-    setUsuarioLogado(null)
-    setEmpresaSelecionada(null)
+ function sair() {
+
+  setUsuarioLogado(null)
+
+  setEmpresaSelecionada(null)
+
+  const loginSalvo = localStorage.getItem(
+    'loginSalvo'
+  )
+
+  if (loginSalvo) {
+
+    const dados = JSON.parse(loginSalvo)
+
+    setEmail(dados.email || '')
+
+    setSenha(dados.senha || '')
+
+    setSalvarLogin(true)
+
   }
+
+}
 
   async function criarEmpresa() {
     if (!novaEmpresa || !emailMasterEmpresa || !senhaMasterEmpresa) {
@@ -486,7 +539,26 @@ function App() {
           <input style={inputStyle} placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
 
           <input style={inputStyle} type="password" placeholder="Senha" value={senha} onChange={(e) => setSenha(e.target.value)} />
-
+<label
+  style={{
+    display: 'block',
+    marginBottom: '20px',
+    color: '#333',
+    fontSize: '16px',
+  }}
+>
+  <input
+    type="checkbox"
+    checked={salvarLogin}
+    onChange={(e) =>
+      setSalvarLogin(e.target.checked)
+    }
+    style={{
+      marginRight: '8px',
+    }}
+  />
+  Salvar login neste aparelho
+</label>
           <button style={buttonStyle} onClick={login}>
             Entrar
           </button>
