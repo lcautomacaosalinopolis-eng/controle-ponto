@@ -1,562 +1,573 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = "https://dgnktvvkgmgdcvswpqsw.supabase.co";
-
-const SUPABASE_ANON_KEY =
-  "sb_publishable_JZRYoAFCE3c4g2c9qTfLBw_mrbo8Pas";
-
-const supabase = createClient(
-  SUPABASE_URL,
-  SUPABASE_ANON_KEY
-);
-
-const EMPRESA_PRINCIPAL = "EIPO AUTOMACAO COMERCIAL";
-
-const emptyEmpresa = {
-  nome: "",
-  cnpj: "",
-  telefone: "",
-  endereco: "",
-};
-
-const emptyFuncionario = {
-  nome: "",
-  cargo: "",
-  senha: "",
-  horario_entrada: "08:00",
-  horario_saida: "18:00",
-  intervalo_inicio: "12:00",
-  intervalo_fim: "14:00",
-  ativo: true,
-};
-
-function formatDateTime(value) {
-  if (!value) return "-";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
+import { useEffect, useState } from 'react'
+import { supabase } from './supabase'
 
 function App() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [empresas, setEmpresas] = useState([]);
-  const [empresaSelecionada, setEmpresaSelecionada] =
-    useState(null);
-
-  const [funcionarios, setFuncionarios] = useState([]);
-  const [registros, setRegistros] = useState([]);
-
-  const [novaEmpresa, setNovaEmpresa] =
-    useState(emptyEmpresa);
-
-  const [novoFuncionario, setNovoFuncionario] =
-    useState(emptyFuncionario);
-
-  const [aba, setAba] = useState("funcionarios");
-
-  const [relogioInternet, setRelogioInternet] =
-    useState(new Date());
-
-  const [erro, setErro] = useState("");
-  const [mensagem, setMensagem] = useState("");
-
-  const empresaAtual = useMemo(() => {
-    if (!empresaSelecionada && empresas.length > 0) {
-      return empresas[0];
-    }
-
-    return empresaSelecionada;
-  }, [empresaSelecionada, empresas]);
-
-  useEffect(() => {
-    iniciarSistema();
-  }, []);
-
-  useEffect(() => {
-    if (empresaAtual?.id) {
-      carregarFuncionarios(empresaAtual.id);
-      carregarRegistros(empresaAtual.id);
-    }
-  }, [empresaAtual?.id]);
-
-  useEffect(() => {
-    sincronizarRelogioInternet();
-
-    const intervaloRelogio = setInterval(() => {
-      setRelogioInternet((old) =>
-        new Date(old.getTime() + 1000)
-      );
-    }, 1000);
-
-    const intervaloSync = setInterval(() => {
-      sincronizarRelogioInternet();
-    }, 300000);
-
-    return () => {
-      clearInterval(intervaloRelogio);
-      clearInterval(intervaloSync);
-    };
-  }, []);
-
-  async function sincronizarRelogioInternet() {
-    try {
-      const resposta = await fetch(
-        "https://worldtimeapi.org/api/timezone/America/Belem"
-      );
-
-      const dados = await resposta.json();
-
-      if (dados?.datetime) {
-        setRelogioInternet(new Date(dados.datetime));
-      }
-    } catch {
-      setRelogioInternet(new Date());
-    }
-  }
-
-  async function iniciarSistema() {
-    setLoading(true);
-
-    try {
-      await garantirEmpresaPrincipal();
-      await carregarEmpresas();
-    } catch (e) {
-      setErro(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function garantirEmpresaPrincipal() {
-    const { data } = await supabase
-      .from("empresas")
-      .select("*")
-      .eq("principal", true)
-      .maybeSingle();
-
-    if (!data) {
-      await supabase.from("empresas").insert({
-        nome: EMPRESA_PRINCIPAL,
-        principal: true,
-      });
-    }
-  }
+  const [empresas, setEmpresas] = useState([])
+  const [usuarios, setUsuarios] = useState([])
+  const [pontos, setPontos] = useState([])
+  const [usuarioLogado, setUsuarioLogado] = useState(null)
+  const [empresaSelecionada, setEmpresaSelecionada] = useState(null)
+  const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
+  const [mensagem, setMensagem] = useState('')
+  const [novaEmpresa, setNovaEmpresa] = useState('')
+  const [emailMasterEmpresa, setEmailMasterEmpresa] = useState('')
+  const [senhaMasterEmpresa, setSenhaMasterEmpresa] = useState('')
+  const [novoNome, setNovoNome] = useState('')
+  const [novoEmail, setNovoEmail] = useState('')
+  const [novaSenha, setNovaSenha] = useState('')
+  const [dataRelatorio, setDataRelatorio] = useState(new Date().toISOString().split('T')[0])
 
   async function carregarEmpresas() {
-    const { data, error } = await supabase
-      .from("empresas")
-      .select("*")
-      .order("principal", {
-        ascending: false,
+    const { data } = await supabase.from('empresas').select('*').order('id')
+    if (data) setEmpresas(data)
+  }
+
+  async function carregarUsuarios() {
+    const { data } = await supabase.from('usuarios').select('*').order('id')
+    if (data) setUsuarios(data)
+  }
+
+  async function carregarPontos() {
+    const { data } = await supabase.from('pontos').select('*').order('id', { ascending: false })
+    if (data) setPontos(data)
+  }
+
+  useEffect(() => {
+    carregarEmpresas()
+    carregarUsuarios()
+    carregarPontos()
+
+    const canal = supabase
+      .channel('tempo-real')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pontos' }, async () => carregarPontos())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, async () => carregarUsuarios())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'empresas' }, async () => carregarEmpresas())
+      .subscribe()
+
+    return () => supabase.removeChannel(canal)
+  }, [])
+
+  function mostrarMensagem(texto) {
+    setMensagem(texto)
+    setTimeout(() => setMensagem(''), 4000)
+  }
+
+  function hojeISO() {
+    return new Date().toISOString().split('T')[0]
+  }
+
+  function hojeBR() {
+    return new Date().toLocaleDateString('pt-BR')
+  }
+
+  function horaAtual() {
+    return new Date().toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  }
+
+  function formatarHoraServidor(dataHora, fallback) {
+    if (!dataHora) return fallback || '-'
+
+    return new Date(dataHora).toLocaleTimeString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  }
+
+  async function login() {
+    if (email.trim().toLowerCase() === 'programador@lc.com' && senha === '@Lc135910#') {
+      setUsuarioLogado({
+        nome: 'PROGRAMADOR',
+        tipo: 'programador',
+        email: 'programador@lc.com',
+        empresa_id: null,
       })
-      .order("nome");
-
-    if (error) {
-      setErro(error.message);
-      return;
+      setEmail('')
+      setSenha('')
+      mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
+      return
     }
 
-    setEmpresas(data || []);
+    const empresaMaster = empresas.find(
+      (empresa) =>
+        empresa.email_master?.toLowerCase() === email.trim().toLowerCase() &&
+        empresa.senha_master === senha &&
+        empresa.ativo !== false
+    )
 
-    if (data?.length) {
-      setEmpresaSelecionada(data[0]);
-    }
-  }
-
-  async function carregarFuncionarios(empresaId) {
-    const { data, error } = await supabase
-      .from("funcionarios")
-      .select("*")
-      .eq("empresa_id", empresaId)
-      .order("nome");
-
-    if (error) {
-      setErro(error.message);
-      return;
-    }
-
-    setFuncionarios(data || []);
-  }
-
-  async function carregarRegistros(empresaId) {
-    const { data, error } = await supabase
-      .from("registros_ponto")
-      .select("*, funcionarios(nome)")
-      .eq("empresa_id", empresaId)
-      .order("created_at", {
-        ascending: false,
+    if (empresaMaster) {
+      setUsuarioLogado({
+        nome: 'MASTER',
+        tipo: 'master',
+        email,
+        empresa_id: empresaMaster.id,
+        empresa_nome: empresaMaster.nome,
       })
-      .limit(100);
-
-    if (error) {
-      setErro(error.message);
-      return;
+      setEmpresaSelecionada(empresaMaster.id)
+      setEmail('')
+      setSenha('')
+      mostrarMensagem('Login MASTER realizado com sucesso.')
+      return
     }
 
-    setRegistros(data || []);
+    const usuario = usuarios.find(
+      (u) => u.email?.toLowerCase() === email.trim().toLowerCase() && u.senha === senha
+    )
+
+    if (!usuario) {
+      mostrarMensagem('Usuário não encontrado.')
+      return
+    }
+
+    if (usuario.ativo === false) {
+      mostrarMensagem('Usuário bloqueado.')
+      return
+    }
+
+    setUsuarioLogado(usuario)
+    setEmpresaSelecionada(usuario.empresa_id)
+    setEmail('')
+    setSenha('')
+    mostrarMensagem('Login realizado com sucesso.')
   }
 
-  async function cadastrarEmpresa(e) {
-    e.preventDefault();
-
-    if (!novaEmpresa.nome.trim()) {
-      setErro("Digite o nome da empresa.");
-      return;
-    }
-
-    setSaving(true);
-
-    const { error } = await supabase
-      .from("empresas")
-      .insert({
-        nome: novaEmpresa.nome,
-        cnpj: novaEmpresa.cnpj,
-        telefone: novaEmpresa.telefone,
-        endereco: novaEmpresa.endereco,
-        principal: false,
-      });
-
-    setSaving(false);
-
-    if (error) {
-      setErro(error.message);
-      return;
-    }
-
-    setNovaEmpresa(emptyEmpresa);
-
-    await carregarEmpresas();
-
-    setMensagem("Empresa cadastrada.");
+  function sair() {
+    setUsuarioLogado(null)
+    setEmpresaSelecionada(null)
   }
 
-  async function cadastrarFuncionario(e) {
-    e.preventDefault();
-
-    if (!empresaAtual?.id) {
-      setErro("Selecione uma empresa.");
-      return;
+  async function criarEmpresa() {
+    if (!novaEmpresa || !emailMasterEmpresa || !senhaMasterEmpresa) {
+      mostrarMensagem('Preencha nome da empresa, e-mail master e senha master.')
+      return
     }
 
-    setSaving(true);
-
-    const { error } = await supabase
-      .from("funcionarios")
-      .insert({
-        empresa_id: empresaAtual.id,
-        nome: novoFuncionario.nome,
-        cargo: novoFuncionario.cargo,
-        senha: novoFuncionario.senha,
-        horario_entrada:
-          novoFuncionario.horario_entrada,
-        horario_saida:
-          novoFuncionario.horario_saida,
-        intervalo_inicio:
-          novoFuncionario.intervalo_inicio,
-        intervalo_fim:
-          novoFuncionario.intervalo_fim,
+    const { error } = await supabase.from('empresas').insert([
+      {
+        nome: novaEmpresa,
+        email_master: emailMasterEmpresa.toLowerCase(),
+        senha_master: senhaMasterEmpresa,
         ativo: true,
-      });
-
-    setSaving(false);
+      },
+    ])
 
     if (error) {
-      setErro(error.message);
-      return;
+      mostrarMensagem('Erro ao criar empresa.')
+      return
     }
 
-    setNovoFuncionario(emptyFuncionario);
+    setNovaEmpresa('')
+    setEmailMasterEmpresa('')
+    setSenhaMasterEmpresa('')
+    await carregarEmpresas()
+    mostrarMensagem('Empresa criada com sucesso!')
+  }
 
-    await carregarFuncionarios(empresaAtual.id);
+  async function cadastrarFuncionario() {
+    if (!novoNome || !novoEmail || !novaSenha) {
+      mostrarMensagem('Preencha todos os campos.')
+      return
+    }
 
-    setMensagem("Funcionário cadastrado.");
+    const empresaId = usuarioLogado.tipo === 'programador' ? empresaSelecionada : usuarioLogado.empresa_id
+
+    if (!empresaId) {
+      mostrarMensagem('Selecione uma empresa antes de cadastrar funcionário.')
+      return
+    }
+
+    const { error } = await supabase.from('usuarios').insert([
+      {
+        nome: novoNome,
+        email: novoEmail.toLowerCase(),
+        senha: novaSenha,
+        tipo: 'funcionario',
+        empresa_id: empresaId,
+        ativo: true,
+      },
+    ])
+
+    if (error) {
+      mostrarMensagem('Erro ao cadastrar funcionário.')
+      return
+    }
+
+    setNovoNome('')
+    setNovoEmail('')
+    setNovaSenha('')
+    await carregarUsuarios()
+    mostrarMensagem('Funcionário cadastrado com sucesso!')
   }
 
   async function excluirFuncionario(id) {
-    const confirmar = window.confirm(
-      "Excluir funcionário?"
-    );
+    const confirmar = confirm('Deseja realmente excluir este funcionário?')
+    if (!confirmar) return
 
-    if (!confirmar) return;
-
-    await supabase
-      .from("funcionarios")
-      .delete()
-      .eq("id", id);
-
-    await carregarFuncionarios(empresaAtual.id);
+    await supabase.from('usuarios').delete().eq('id', id)
+    await carregarUsuarios()
+    mostrarMensagem('Funcionário excluído.')
   }
 
-  async function alternarAtivo(funcionario) {
-    await supabase
-      .from("funcionarios")
-      .update({
-        ativo: !funcionario.ativo,
-      })
-      .eq("id", funcionario.id);
+  async function registrarPonto() {
+    const registrosHoje = pontos.filter(
+      (p) => p.usuario_id === usuarioLogado.id && p.data_iso === hojeISO()
+    )
 
-    await carregarFuncionarios(empresaAtual.id);
-  }
+    const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
+    const saida = registrosHoje.find((p) => p.tipo === 'Saída')
 
-  async function baterPonto(funcionario, tipo) {
-    await sincronizarRelogioInternet();
-
-    const horarioAtual = new Date(
-      relogioInternet.getTime() + 1000
-    ).toISOString();
-
-    const { error } = await supabase
-      .from("registros_ponto")
-      .insert({
-        empresa_id: empresaAtual.id,
-        funcionario_id: funcionario.id,
-        tipo,
-        data: todayISO(),
-        horario: horarioAtual,
-      });
-
-    if (error) {
-      setErro(error.message);
-      return;
+    if (entrada && saida) {
+      mostrarMensagem('Você já registrou entrada e saída hoje.')
+      return
     }
 
-    setMensagem(
-      `${funcionario.nome} registrou ${tipo}`
-    );
+    const tipo = entrada ? 'Saída' : 'Entrada'
 
-    await carregarRegistros(empresaAtual.id);
+    const { error } = await supabase.from('pontos').insert([
+      {
+        usuario_id: usuarioLogado.id,
+        empresa_id: usuarioLogado.empresa_id,
+        nome: usuarioLogado.nome,
+        data: hojeBR(),
+        data_iso: hojeISO(),
+        hora: horaAtual(),
+        tipo,
+      },
+    ])
+
+    if (error) {
+      mostrarMensagem('Erro ao registrar ponto.')
+      return
+    }
+
+    await carregarPontos()
+    mostrarMensagem(`✅ ${tipo} registrada com sucesso!`)
   }
 
-  function selecionarEmpresa(empresa) {
-    setEmpresaSelecionada(empresa);
+  function empresasVisiveis() {
+    if (usuarioLogado?.tipo === 'programador') return empresas
+    return empresas.filter((empresa) => empresa.id === usuarioLogado?.empresa_id)
   }
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          fontSize: 25,
-          fontWeight: "bold",
-        }}
-      >
-        Carregando...
-      </div>
-    );
+  function usuariosVisiveis() {
+    if (usuarioLogado?.tipo === 'programador') {
+      if (!empresaSelecionada) return []
+      return usuarios.filter((usuario) => usuario.empresa_id === empresaSelecionada)
+    }
+
+    return usuarios.filter((usuario) => usuario.empresa_id === usuarioLogado?.empresa_id)
+  }
+
+  function gerarRelatorio(empresaId = usuarioLogado?.empresa_id) {
+    const idEmpresa = usuarioLogado?.tipo === 'programador' ? empresaSelecionada : empresaId
+
+    const registros = pontos.filter((p) => {
+      if (!idEmpresa) return false
+      return p.data_iso === dataRelatorio && p.empresa_id === idEmpresa
+    })
+
+    const agrupado = {}
+
+    registros.forEach((r) => {
+      if (!agrupado[r.nome]) {
+        agrupado[r.nome] = {
+          entrada: '',
+          saida: '',
+          data: r.data,
+        }
+      }
+
+      if (r.tipo === 'Entrada') {
+        agrupado[r.nome].entrada = formatarHoraServidor(r.registrado_em, r.hora)
+      }
+
+      if (r.tipo === 'Saída') {
+        agrupado[r.nome].saida = formatarHoraServidor(r.registrado_em, r.hora)
+      }
+    })
+
+    return Object.keys(agrupado).map((nome) => ({
+      nome,
+      data: agrupado[nome].data,
+      entrada: agrupado[nome].entrada,
+      saida: agrupado[nome].saida,
+      status:
+        agrupado[nome].entrada && agrupado[nome].saida
+          ? 'Completo'
+          : 'Pendente',
+    }))
+  }
+
+  function exportarRelatorioPDF() {
+    window.print()
+  }
+
+  const containerStyle = {
+    maxWidth: '1000px',
+    margin: '40px auto',
+    backgroundColor: '#fff',
+    padding: '40px',
+    borderRadius: '20px',
+    boxShadow: '0 0 20px rgba(0,0,0,0.1)',
+    textAlign: 'center',
+  }
+
+  const inputStyle = {
+    width: '100%',
+    padding: '15px',
+    marginBottom: '15px',
+    borderRadius: '10px',
+    border: '1px solid #ccc',
+    fontSize: '16px',
+  }
+
+  const buttonStyle = {
+    padding: '15px 30px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#001f6b',
+    color: '#fff',
+    fontSize: '18px',
+    cursor: 'pointer',
+    marginBottom: '20px',
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f3f4f6",
-        padding: 20,
-        fontFamily: "Arial",
-      }}
-    >
-      <div
-        style={{
-          background: "#111827",
-          color: "white",
-          padding: 20,
-          borderRadius: 20,
-          marginBottom: 20,
-        }}
-      >
-        <h1>
-          Controle de Ponto Biométrico
-        </h1>
-
-        <p>
-          Horário sincronizado:
-          {" "}
-          {formatDateTime(relogioInternet)}
-        </p>
-      </div>
-
-      {erro && (
-        <div
-          style={{
-            background: "#fee2e2",
-            padding: 12,
-            borderRadius: 10,
-            marginBottom: 10,
-            color: "#991b1b",
-            fontWeight: "bold",
-          }}
-        >
-          {erro}
-        </div>
-      )}
-
+    <div style={containerStyle}>
       {mensagem && (
         <div
           style={{
-            background: "#dcfce7",
-            padding: 12,
-            borderRadius: 10,
-            marginBottom: 10,
-            color: "#166534",
-            fontWeight: "bold",
+            background: '#16a34a',
+            color: '#fff',
+            padding: '20px',
+            borderRadius: '15px',
+            marginBottom: '20px',
+            fontSize: '24px',
+            fontWeight: 'bold',
           }}
         >
           {mensagem}
         </div>
       )}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "320px 1fr",
-          gap: 20,
-        }}
-      >
-        <div
-          style={{
-            background: "white",
-            padding: 20,
-            borderRadius: 20,
-          }}
-        >
-          <h2>Empresas</h2>
+      <h1 style={{ fontSize: '60px', color: '#0b1633' }}>
+        Controle de Ponto
+      </h1>
 
-          <div
-            style={{
-              display: "grid",
-              gap: 10,
-              marginBottom: 20,
-            }}
-          >
-            {empresas.map((empresa) => (
-              <button
-                key={empresa.id}
-                onClick={() =>
-                  selecionarEmpresa(empresa)
-                }
-                onDoubleClick={() =>
-                  selecionarEmpresa(empresa)
-                }
-                style={{
-                  padding: 15,
-                  borderRadius: 12,
-                  border:
-                    empresaAtual?.id === empresa.id
-                      ? "2px solid #2563eb"
-                      : "1px solid #d1d5db",
-                  background:
-                    empresaAtual?.id === empresa.id
-                      ? "#eff6ff"
-                      : "white",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <strong>
-                  {empresa.nome}
-                </strong>
+      {!usuarioLogado ? (
+        <>
+          <h2>Login do sistema</h2>
 
-                <br />
+          <input style={inputStyle} placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
 
-                <small>
-                  {empresa.cnpj || "Sem CNPJ"}
-                </small>
+          <input style={inputStyle} type="password" placeholder="Senha" value={senha} onChange={(e) => setSenha(e.target.value)} />
+
+          <button style={buttonStyle} onClick={login}>
+            Entrar
+          </button>
+        </>
+      ) : (
+        <>
+          <h2>
+            Usuário logado: <strong>{usuarioLogado.nome}</strong>
+          </h2>
+
+          {usuarioLogado.empresa_nome && <h3>Empresa: {usuarioLogado.empresa_nome}</h3>}
+
+          <button style={buttonStyle} onClick={sair}>
+            Sair
+          </button>
+
+          <hr />
+
+          {usuarioLogado.tipo === 'programador' && (
+            <>
+              <h1 style={{ color: '#1d4ed8', marginTop: '40px' }}>
+                Painel Programador / Multiempresas
+              </h1>
+
+              <h2>Criar Empresa</h2>
+
+              <input style={inputStyle} placeholder="Nome da empresa" value={novaEmpresa} onChange={(e) => setNovaEmpresa(e.target.value)} />
+
+              <input style={inputStyle} placeholder="E-mail master da empresa" value={emailMasterEmpresa} onChange={(e) => setEmailMasterEmpresa(e.target.value)} />
+
+              <input style={inputStyle} placeholder="Senha master da empresa" value={senhaMasterEmpresa} onChange={(e) => setSenhaMasterEmpresa(e.target.value)} />
+
+              <button style={buttonStyle} onClick={criarEmpresa}>
+                Criar Empresa
               </button>
-            ))}
-          </div>
 
-          <form
-            onSubmit={cadastrarEmpresa}
-            style={{
-              display: "grid",
-              gap: 10,
-            }}
-          >
-            <h3>Nova empresa</h3>
+              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
+                Empresas Cadastradas
+              </h1>
 
-            <input
-              placeholder="Nome"
-              value={novaEmpresa.nome}
-              onChange={(e) =>
-                setNovaEmpresa({
-                  ...novaEmpresa,
-                  nome: e.target.value,
-                })
-              }
-            />
+              {empresas.map((empresa) => (
+                <div
+                  key={empresa.id}
+                  onClick={() => setEmpresaSelecionada(empresa.id)}
+                  style={{
+                    background: empresaSelecionada === empresa.id ? '#dbeafe' : '#f3f3f3',
+                    padding: '20px',
+                    borderRadius: '10px',
+                    marginBottom: '10px',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    border: empresaSelecionada === empresa.id ? '2px solid #1d4ed8' : '2px solid transparent',
+                  }}
+                >
+                  <strong>{empresa.nome}</strong>
+                  <br />
+                  ID: {empresa.id}
+                  <br />
+                  Master: {empresa.email_master}
+                  <br />
+                  Senha Master: {empresa.senha_master}
+                  <br />
+                  <br />
+                  <strong>Clique para ver funcionários, senhas e pontos</strong>
+                </div>
+              ))}
 
-            <input
-              placeholder="CNPJ"
-              value={novaEmpresa.cnpj}
-              onChange={(e) =>
-                setNovaEmpresa({
-                  ...novaEmpresa,
-                  cnpj: e.target.value,
-                })
-              }
-            />
+              <hr />
+            </>
+          )}
 
-            <input
-              placeholder="Telefone"
-              value={novaEmpresa.telefone}
-              onChange={(e) =>
-                setNovaEmpresa({
-                  ...novaEmpresa,
-                  telefone: e.target.value,
-                })
-              }
-            />
+          {(usuarioLogado.tipo === 'master' || usuarioLogado.tipo === 'programador') && (
+            <>
+              {(usuarioLogado.tipo === 'master' || (usuarioLogado.tipo === 'programador' && empresaSelecionada)) && (
+                <>
+                  <h2>Cadastrar Funcionário</h2>
 
-            <input
-              placeholder="Endereço"
-              value={novaEmpresa.endereco}
-              onChange={(e) =>
-                setNovaEmpresa({
-                  ...novaEmpresa,
-                  endereco: e.target.value,
-                })
-              }
-            />
+                  <input style={inputStyle} placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
 
-            <button
-              style={{
-                background: "#2563eb",
-                color: "white",
-                border: 0,
-                padding: 12,
-                borderRadius: 10,
-                cursor: "pointer",
-                fontWeight: "bold",
-              }}
-            >
-              {saving
-                ? "Salvando..."
-                : "Salvar empresa"}
-            </button>
-          </form>
-        </div>
-      </div>
+                  <input style={inputStyle} placeholder="E-mail" value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} />
+
+                  <input style={inputStyle} placeholder="Senha" value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} />
+
+                  <button style={buttonStyle} onClick={cadastrarFuncionario}>
+                    Cadastrar
+                  </button>
+                </>
+              )}
+
+              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
+                Funcionários
+              </h1>
+
+              {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                <p>Clique em uma empresa para visualizar os funcionários.</p>
+              )}
+
+              {usuariosVisiveis()
+                .filter((u) => u.tipo === 'funcionario')
+                .map((u) => (
+                  <div
+                    key={u.id}
+                    style={{
+                      background: '#f3f3f3',
+                      padding: '20px',
+                      borderRadius: '10px',
+                      marginBottom: '10px',
+                    }}
+                  >
+                    <strong>{u.nome}</strong>
+                    <br />
+                    Empresa ID: {u.empresa_id}
+                    <br />
+                    E-mail: {u.email}
+                    <br />
+                    Senha: {u.senha}
+                    <br />
+                    Status: {u.ativo === false ? 'Bloqueado' : 'Ativo'}
+                    <br />
+                    <br />
+
+                    <button style={{ ...buttonStyle, backgroundColor: '#dc2626' }} onClick={() => excluirFuncionario(u.id)}>
+                      Excluir
+                    </button>
+                  </div>
+                ))}
+
+              <hr />
+
+              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
+                Relatório
+              </h1>
+
+              <input type="date" style={inputStyle} value={dataRelatorio} onChange={(e) => setDataRelatorio(e.target.value)} />
+
+              <button style={{ ...buttonStyle, backgroundColor: '#16a34a' }} onClick={exportarRelatorioPDF}>
+                Exportar PDF
+              </button>
+
+              {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                <p>Clique em uma empresa para visualizar o relatório.</p>
+              )}
+
+              {empresasVisiveis()
+                .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
+                .map((empresa) => (
+                  <div key={empresa.id}>
+                    {usuarioLogado.tipo === 'programador' && (
+                      <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
+                    )}
+
+                    {gerarRelatorio(empresa.id).map((r, index) => (
+                      <div
+                        key={`${empresa.id}-${index}`}
+                        style={{
+                          background: '#f3f3f3',
+                          padding: '20px',
+                          borderRadius: '10px',
+                          marginBottom: '10px',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <strong>{r.nome}</strong>
+                        <br />
+                        Data: {r.data}
+                        <br />
+                        Entrada: {r.entrada || '-'}
+                        <br />
+                        Saída: {r.saida || '-'}
+                        <br />
+                        Status: {r.status}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+            </>
+          )}
+
+          {usuarioLogado.tipo === 'funcionario' && (
+            <>
+              <h1 style={{ color: '#001f6b', marginTop: '40px' }}>
+                Registrar Ponto
+              </h1>
+
+              <button style={buttonStyle} onClick={registrarPonto}>
+                Registrar Ponto
+              </button>
+            </>
+          )}
+        </>
+      )}
+
+      <br />
+      <br />
+
+      <p style={{ color: '#666', letterSpacing: '2px' }}>
+        DEVELOPED BY DINHO OLIVEIRA
+      </p>
     </div>
-  );
+  )
 }
 
-export default App;
+export default App
