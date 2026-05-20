@@ -7,6 +7,8 @@ function App() {
   const [pontos, setPontos] = useState([])
   const [usuarioLogado, setUsuarioLogado] = useState(null)
 
+  const [empresaSelecionada, setEmpresaSelecionada] = useState(null)
+
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [mensagem, setMensagem] = useState('')
@@ -93,11 +95,14 @@ function App() {
   }
 
   async function login() {
-    if (email === 'programador@lc.com' && senha === '@Lc135910#') {
+    if (
+      email.trim().toLowerCase() === 'programador@lc.com' &&
+      senha === '@Lc135910#'
+    ) {
       setUsuarioLogado({
         nome: 'PROGRAMADOR',
         tipo: 'programador',
-        email,
+        email: 'programador@lc.com',
         empresa_id: null,
       })
 
@@ -109,7 +114,7 @@ function App() {
 
     const empresaMaster = empresas.find(
       (empresa) =>
-        empresa.email_master?.toLowerCase() === email.toLowerCase() &&
+        empresa.email_master?.toLowerCase() === email.trim().toLowerCase() &&
         empresa.senha_master === senha &&
         empresa.ativo !== false
     )
@@ -123,6 +128,7 @@ function App() {
         empresa_nome: empresaMaster.nome,
       })
 
+      setEmpresaSelecionada(empresaMaster.id)
       setEmail('')
       setSenha('')
       mostrarMensagem('Login MASTER realizado com sucesso.')
@@ -131,7 +137,7 @@ function App() {
 
     const usuario = usuarios.find(
       (u) =>
-        u.email?.toLowerCase() === email.toLowerCase() &&
+        u.email?.toLowerCase() === email.trim().toLowerCase() &&
         u.senha === senha
     )
 
@@ -146,6 +152,7 @@ function App() {
     }
 
     setUsuarioLogado(usuario)
+    setEmpresaSelecionada(usuario.empresa_id)
     setEmail('')
     setSenha('')
     mostrarMensagem('Login realizado com sucesso.')
@@ -153,6 +160,7 @@ function App() {
 
   function sair() {
     setUsuarioLogado(null)
+    setEmpresaSelecionada(null)
   }
 
   async function criarEmpresa() {
@@ -189,8 +197,13 @@ function App() {
       return
     }
 
-    if (!usuarioLogado.empresa_id) {
-      mostrarMensagem('Selecione uma empresa válida.')
+    const empresaId =
+      usuarioLogado.tipo === 'programador'
+        ? empresaSelecionada
+        : usuarioLogado.empresa_id
+
+    if (!empresaId) {
+      mostrarMensagem('Selecione uma empresa antes de cadastrar funcionário.')
       return
     }
 
@@ -200,7 +213,7 @@ function App() {
         email: novoEmail.toLowerCase(),
         senha: novaSenha,
         tipo: 'funcionario',
-        empresa_id: usuarioLogado.empresa_id,
+        empresa_id: empresaId,
         ativo: true,
       },
     ])
@@ -230,9 +243,7 @@ function App() {
 
   async function registrarPonto() {
     const registrosHoje = pontos.filter(
-      (p) =>
-        p.usuario_id === usuarioLogado.id &&
-        p.data_iso === hojeISO()
+      (p) => p.usuario_id === usuarioLogado.id && p.data_iso === hojeISO()
     )
 
     const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
@@ -272,7 +283,10 @@ function App() {
   }
 
   function usuariosVisiveis() {
-    if (usuarioLogado?.tipo === 'programador') return usuarios
+    if (usuarioLogado?.tipo === 'programador') {
+      if (!empresaSelecionada) return []
+      return usuarios.filter((usuario) => usuario.empresa_id === empresaSelecionada)
+    }
 
     return usuarios.filter(
       (usuario) => usuario.empresa_id === usuarioLogado?.empresa_id
@@ -280,14 +294,12 @@ function App() {
   }
 
   function gerarRelatorio(empresaId = usuarioLogado?.empresa_id) {
+    const idEmpresa =
+      usuarioLogado?.tipo === 'programador' ? empresaSelecionada : empresaId
+
     const registros = pontos.filter((p) => {
-      if (p.data_iso !== dataRelatorio) return false
-
-      if (usuarioLogado?.tipo === 'programador') {
-        return empresaId ? p.empresa_id === empresaId : true
-      }
-
-      return p.empresa_id === usuarioLogado?.empresa_id
+      if (!idEmpresa) return false
+      return p.data_iso === dataRelatorio && p.empresa_id === idEmpresa
     })
 
     const agrupado = {}
@@ -452,12 +464,19 @@ function App() {
               {empresas.map((empresa) => (
                 <div
                   key={empresa.id}
+                  onClick={() => setEmpresaSelecionada(empresa.id)}
                   style={{
-                    background: '#f3f3f3',
+                    background:
+                      empresaSelecionada === empresa.id ? '#dbeafe' : '#f3f3f3',
                     padding: '20px',
                     borderRadius: '10px',
                     marginBottom: '10px',
                     textAlign: 'left',
+                    cursor: 'pointer',
+                    border:
+                      empresaSelecionada === empresa.id
+                        ? '2px solid #1d4ed8'
+                        : '2px solid transparent',
                   }}
                 >
                   <strong>{empresa.nome}</strong>
@@ -467,6 +486,9 @@ function App() {
                   Master: {empresa.email_master}
                   <br />
                   Senha Master: {empresa.senha_master}
+                  <br />
+                  <br />
+                  <strong>Clique para ver funcionários, senhas e pontos</strong>
                 </div>
               ))}
 
@@ -477,7 +499,8 @@ function App() {
           {(usuarioLogado.tipo === 'master' ||
             usuarioLogado.tipo === 'programador') && (
             <>
-              {usuarioLogado.tipo === 'master' && (
+              {(usuarioLogado.tipo === 'master' ||
+                (usuarioLogado.tipo === 'programador' && empresaSelecionada)) && (
                 <>
                   <h2>Cadastrar Funcionário</h2>
 
@@ -512,6 +535,10 @@ function App() {
                 Funcionários
               </h1>
 
+              {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                <p>Clique em uma empresa para visualizar os funcionários.</p>
+              )}
+
               {usuariosVisiveis()
                 .filter((u) => u.tipo === 'funcionario')
                 .map((u) => (
@@ -528,9 +555,11 @@ function App() {
                     <br />
                     Empresa ID: {u.empresa_id}
                     <br />
-                    {u.email}
+                    E-mail: {u.email}
                     <br />
                     Senha: {u.senha}
+                    <br />
+                    Status: {u.ativo === false ? 'Bloqueado' : 'Ativo'}
                     <br />
                     <br />
 
@@ -563,38 +592,48 @@ function App() {
                 Exportar PDF
               </button>
 
-              {empresasVisiveis().map((empresa) => (
-                <div key={empresa.id}>
-                  {usuarioLogado.tipo === 'programador' && (
-                    <h2 style={{ color: '#001f6b' }}>
-                      Empresa: {empresa.nome}
-                    </h2>
-                  )}
+              {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                <p>Clique em uma empresa para visualizar o relatório.</p>
+              )}
 
-                  {gerarRelatorio(empresa.id).map((r, index) => (
-                    <div
-                      key={`${empresa.id}-${index}`}
-                      style={{
-                        background: '#f3f3f3',
-                        padding: '20px',
-                        borderRadius: '10px',
-                        marginBottom: '10px',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <strong>{r.nome}</strong>
-                      <br />
-                      Data: {r.data}
-                      <br />
-                      Entrada: {r.entrada || '-'}
-                      <br />
-                      Saída: {r.saida || '-'}
-                      <br />
-                      Status: {r.status}
-                    </div>
-                  ))}
-                </div>
-              ))}
+              {empresasVisiveis()
+                .filter((empresa) =>
+                  usuarioLogado.tipo === 'programador'
+                    ? empresa.id === empresaSelecionada
+                    : true
+                )
+                .map((empresa) => (
+                  <div key={empresa.id}>
+                    {usuarioLogado.tipo === 'programador' && (
+                      <h2 style={{ color: '#001f6b' }}>
+                        Empresa: {empresa.nome}
+                      </h2>
+                    )}
+
+                    {gerarRelatorio(empresa.id).map((r, index) => (
+                      <div
+                        key={`${empresa.id}-${index}`}
+                        style={{
+                          background: '#f3f3f3',
+                          padding: '20px',
+                          borderRadius: '10px',
+                          marginBottom: '10px',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <strong>{r.nome}</strong>
+                        <br />
+                        Data: {r.data}
+                        <br />
+                        Entrada: {r.entrada || '-'}
+                        <br />
+                        Saída: {r.saida || '-'}
+                        <br />
+                        Status: {r.status}
+                      </div>
+                    ))}
+                  </div>
+                ))}
             </>
           )}
 
