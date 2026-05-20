@@ -13,6 +13,7 @@ function App() {
   const [novaSenha, setNovaSenha] = useState('')
 
   const [pontos, setPontos] = useState([])
+  const [mensagem, setMensagem] = useState('')
   const [dataRelatorio, setDataRelatorio] = useState(
     new Date().toISOString().split('T')[0]
   )
@@ -36,11 +37,28 @@ function App() {
     carregarPontos()
   }, [])
 
+  function mostrarMensagem(texto) {
+    setMensagem(texto)
+    setTimeout(() => setMensagem(''), 4000)
+  }
+
+  function hojeISO() {
+    return new Date().toISOString().split('T')[0]
+  }
+
+  function hojeBR() {
+    return new Date().toLocaleDateString('pt-BR')
+  }
+
+  function horaAtual() {
+    return new Date().toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
   async function login() {
-    if (
-      email === 'master@empresa.com' &&
-      senha === 'pontoemp01'
-    ) {
+    if (email === 'master@empresa.com' && senha === 'pontoemp01') {
       setUsuarioLogado({
         nome: 'MASTER',
         tipo: 'master',
@@ -54,7 +72,12 @@ function App() {
     )
 
     if (!usuario) {
-      alert('Usuário não encontrado')
+      mostrarMensagem('E-mail ou senha incorretos.')
+      return
+    }
+
+    if (usuario.ativo === false) {
+      mostrarMensagem('Usuário bloqueado. Procure o gerente.')
       return
     }
 
@@ -67,7 +90,7 @@ function App() {
 
   async function cadastrarFuncionario() {
     if (!novoNome || !novoEmail || !novaSenha) {
-      alert('Preencha todos os campos')
+      mostrarMensagem('Preencha todos os campos.')
       return
     }
 
@@ -77,6 +100,7 @@ function App() {
         email: novoEmail,
         senha: novaSenha,
         tipo: 'funcionario',
+        ativo: true,
       },
     ])
 
@@ -84,67 +108,60 @@ function App() {
     setNovoEmail('')
     setNovaSenha('')
 
-    carregarUsuarios()
-
-    alert('Funcionário cadastrado')
+    await carregarUsuarios()
+    mostrarMensagem('Funcionário cadastrado com sucesso.')
   }
 
   async function excluirFuncionario(id) {
-    const confirmar = confirm(
-      'Deseja realmente excluir este funcionário?'
-    )
-
+    const confirmar = confirm('Deseja realmente excluir este funcionário?')
     if (!confirmar) return
 
     await supabase.from('usuarios').delete().eq('id', id)
-
-    carregarUsuarios()
+    await carregarUsuarios()
+    mostrarMensagem('Funcionário excluído com sucesso.')
   }
 
   async function registrarPonto() {
-    const registrosUsuario = pontos.filter(
-      (p) => p.usuario_id === usuarioLogado.id
+    const registrosHoje = pontos.filter(
+      (p) =>
+        p.usuario_id === usuarioLogado.id &&
+        (p.data_iso === hojeISO() || p.data === hojeBR())
     )
 
-    const ultimo =
-      registrosUsuario[0]?.tipo === 'Entrada'
-        ? 'Saída'
-        : 'Entrada'
-
-    const agora = new Date()
-
-    const data = agora.toLocaleDateString()
-    const hora = agora.toLocaleTimeString()
+    const ultimo = registrosHoje[0]?.tipo === 'Entrada' ? 'Saída' : 'Entrada'
 
     const { error } = await supabase.from('pontos').insert([
       {
         usuario_id: usuarioLogado.id,
         nome: usuarioLogado.nome,
-        data,
-        hora,
+        data: hojeBR(),
+        data_iso: hojeISO(),
+        hora: horaAtual(),
         tipo: ultimo,
+        aparelho: navigator.userAgent,
       },
     ])
 
     if (error) {
-      alert('Erro ao registrar ponto')
+      mostrarMensagem('Erro ao registrar ponto.')
       return
     }
 
-    carregarPontos()
-
-    alert(`${ultimo} registrada com sucesso`)
+    await carregarPontos()
+    mostrarMensagem(`${ultimo} registrada com sucesso!`)
   }
 
   function gerarRelatorio() {
-    const registros = pontos.filter(
-      (p) => {
-        const [dia, mes, ano] = p.data.split('/')
-        const dataFormatada = `${ano}-${mes}-${dia}`
+    const registros = pontos.filter((p) => {
+      if (p.data_iso) return p.data_iso === dataRelatorio
 
-        return dataFormatada === dataRelatorio
+      if (p.data && p.data.includes('/')) {
+        const [dia, mes, ano] = p.data.split('/')
+        return `${ano}-${mes}-${dia}` === dataRelatorio
       }
-    )
+
+      return false
+    })
 
     const agrupado = {}
 
@@ -157,13 +174,8 @@ function App() {
         }
       }
 
-      if (r.tipo === 'Entrada') {
-        agrupado[r.nome].entrada = r.hora
-      }
-
-      if (r.tipo === 'Saída') {
-        agrupado[r.nome].saida = r.hora
-      }
+      if (r.tipo === 'Entrada') agrupado[r.nome].entrada = r.hora
+      if (r.tipo === 'Saída') agrupado[r.nome].saida = r.hora
     })
 
     return Object.keys(agrupado).map((nome) => ({
@@ -178,28 +190,57 @@ function App() {
     }))
   }
 
-  function exportarRelatorioCSV() {
+  function exportarRelatorioPDF() {
     const relatorio = gerarRelatorio()
+    const janela = window.open('', '', 'width=900,height=700')
 
-    let csv = 'Funcionário;Data;Entrada;Saída;Status\n'
+    let html = `
+      <html>
+        <head>
+          <title>Relatório de Ponto</title>
+          <style>
+            body { font-family: Arial; padding: 20px; }
+            h1 { text-align: center; color: #001f6b; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
+            th { background: #001f6b; color: white; }
+            .rodape { margin-top: 40px; text-align: center; font-size: 12px; color: #666; letter-spacing: 2px; }
+          </style>
+        </head>
+        <body>
+          <h1>Relatório de Ponto</h1>
+          <table>
+            <tr>
+              <th>Funcionário</th>
+              <th>Data</th>
+              <th>Entrada</th>
+              <th>Saída</th>
+              <th>Status</th>
+            </tr>
+    `
 
-    relatorio.forEach((linha) => {
-      csv += `${linha.nome};${linha.data};${linha.entrada};${linha.saida};${linha.status}\n`
+    relatorio.forEach((r) => {
+      html += `
+        <tr>
+          <td>${r.nome}</td>
+          <td>${r.data}</td>
+          <td>${r.entrada}</td>
+          <td>${r.saida}</td>
+          <td>${r.status}</td>
+        </tr>
+      `
     })
 
-    const arquivo = new Blob([csv], {
-      type: 'text/csv;charset=utf-8;',
-    })
+    html += `
+          </table>
+          <div class="rodape">DEVELOPED BY DINHO OLIVEIRA</div>
+        </body>
+      </html>
+    `
 
-    const url = URL.createObjectURL(arquivo)
-
-    const link = document.createElement('a')
-
-    link.href = url
-    link.download = `relatorio-${dataRelatorio}.csv`
-    link.click()
-
-    URL.revokeObjectURL(url)
+    janela.document.write(html)
+    janela.document.close()
+    janela.print()
   }
 
   const relatorio = gerarRelatorio()
@@ -236,12 +277,24 @@ function App() {
 
   return (
     <div style={containerStyle}>
-      <h1
-        style={{
-          fontSize: '60px',
-          color: '#0b1633',
-        }}
-      >
+      {mensagem && (
+        <div
+          style={{
+            backgroundColor: '#001f6b',
+            color: '#fff',
+            padding: '20px',
+            borderRadius: '15px',
+            marginBottom: '25px',
+            fontSize: '22px',
+            fontWeight: 'bold',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+          }}
+        >
+          {mensagem}
+        </div>
+      )}
+
+      <h1 style={{ fontSize: '60px', color: '#0b1633' }}>
         Controle de Ponto
       </h1>
 
@@ -271,8 +324,7 @@ function App() {
       ) : (
         <>
           <h2>
-            Usuário logado:{' '}
-            <strong>{usuarioLogado.nome}</strong>
+            Usuário logado: <strong>{usuarioLogado.nome}</strong>
           </h2>
 
           <button style={buttonStyle} onClick={sair}>
@@ -289,33 +341,24 @@ function App() {
                 style={inputStyle}
                 placeholder="Nome"
                 value={novoNome}
-                onChange={(e) =>
-                  setNovoNome(e.target.value)
-                }
+                onChange={(e) => setNovoNome(e.target.value)}
               />
 
               <input
                 style={inputStyle}
                 placeholder="E-mail"
                 value={novoEmail}
-                onChange={(e) =>
-                  setNovoEmail(e.target.value)
-                }
+                onChange={(e) => setNovoEmail(e.target.value)}
               />
 
               <input
                 style={inputStyle}
                 placeholder="Senha"
                 value={novaSenha}
-                onChange={(e) =>
-                  setNovaSenha(e.target.value)
-                }
+                onChange={(e) => setNovaSenha(e.target.value)}
               />
 
-              <button
-                style={buttonStyle}
-                onClick={cadastrarFuncionario}
-              >
+              <button style={buttonStyle} onClick={cadastrarFuncionario}>
                 Cadastrar
               </button>
 
@@ -333,19 +376,16 @@ function App() {
                 >
                   <strong>{u.nome}</strong>
                   <br />
-                  {u.email}
+                  E-mail: {u.email}
+                  <br />
+                  Senha: {u.senha}
 
                   <br />
                   <br />
 
                   <button
-                    style={{
-                      ...buttonStyle,
-                      backgroundColor: '#dc2626',
-                    }}
-                    onClick={() =>
-                      excluirFuncionario(u.id)
-                    }
+                    style={{ ...buttonStyle, backgroundColor: '#dc2626' }}
+                    onClick={() => excluirFuncionario(u.id)}
                   >
                     Excluir
                   </button>
@@ -360,19 +400,14 @@ function App() {
                 type="date"
                 style={inputStyle}
                 value={dataRelatorio}
-                onChange={(e) =>
-                  setDataRelatorio(e.target.value)
-                }
+                onChange={(e) => setDataRelatorio(e.target.value)}
               />
 
               <button
-                style={{
-                  ...buttonStyle,
-                  backgroundColor: '#16a34a',
-                }}
-                onClick={exportarRelatorioCSV}
+                style={{ ...buttonStyle, backgroundColor: '#16a34a' }}
+                onClick={exportarRelatorioPDF}
               >
-                Exportar Relatório
+                Exportar PDF
               </button>
 
               {relatorio.map((r, index) => (
@@ -402,19 +437,11 @@ function App() {
 
           {usuarioLogado.tipo !== 'master' && (
             <>
-              <h1
-                style={{
-                  color: '#001f6b',
-                  marginTop: '40px',
-                }}
-              >
+              <h1 style={{ color: '#001f6b', marginTop: '40px' }}>
                 Registrar Ponto
               </h1>
 
-              <button
-                style={buttonStyle}
-                onClick={registrarPonto}
-              >
+              <button style={buttonStyle} onClick={registrarPonto}>
                 Registrar Ponto
               </button>
             </>
@@ -425,12 +452,7 @@ function App() {
       <br />
       <br />
 
-      <p
-        style={{
-          color: '#666',
-          letterSpacing: '2px',
-        }}
-      >
+      <p style={{ color: '#666', letterSpacing: '2px' }}>
         DEVELOPED BY DINHO OLIVEIRA
       </p>
     </div>
