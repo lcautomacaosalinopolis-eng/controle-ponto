@@ -1,487 +1,438 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
-import './App.css'
 
 function App() {
-  const [carregando, setCarregando] = useState(true)
-  const [usuarioLogado, setUsuarioLogado] = useState(null)
-  const [emailLogin, setEmailLogin] = useState('')
-  const [senhaLogin, setSenhaLogin] = useState('')
   const [usuarios, setUsuarios] = useState([])
-  const [pontos, setPontos] = useState([])
+  const [usuarioLogado, setUsuarioLogado] = useState(null)
+
+  const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
 
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
 
-  const [dataRelatorio, setDataRelatorio] = useState(() => {
-    return new Date().toISOString().split('T')[0]
-  })
+  const [pontos, setPontos] = useState([])
+  const [dataRelatorio, setDataRelatorio] = useState(
+    new Date().toISOString().split('T')[0]
+  )
 
-  useEffect(() => {
-    carregarDados()
-  }, [])
+  async function carregarUsuarios() {
+    const { data } = await supabase.from('usuarios').select('*')
+    if (data) setUsuarios(data)
+  }
 
-  async function carregarDados() {
-    setCarregando(true)
-
-    const { data: usuariosData, error: erroUsuarios } = await supabase
-      .from('usuarios')
-      .select('*')
-      .order('id', { ascending: true })
-
-    const { data: pontosData, error: erroPontos } = await supabase
+  async function carregarPontos() {
+    const { data } = await supabase
       .from('pontos')
       .select('*')
-      .order('id', { ascending: true })
+      .order('id', { ascending: false })
 
-    if (erroUsuarios || erroPontos) {
-      alert('Erro ao carregar dados do Supabase.')
-      console.log(erroUsuarios || erroPontos)
-      setCarregando(false)
+    if (data) setPontos(data)
+  }
+
+  useEffect(() => {
+    carregarUsuarios()
+    carregarPontos()
+  }, [])
+
+  async function login() {
+    if (
+      email === 'master@empresa.com' &&
+      senha === 'pontoemp01'
+    ) {
+      setUsuarioLogado({
+        nome: 'MASTER',
+        tipo: 'master',
+        email,
+      })
       return
     }
 
-    setUsuarios(usuariosData || [])
-    setPontos(pontosData || [])
-    setCarregando(false)
-  }
-
-  function hojeBrasil() {
-    return new Date().toLocaleDateString('pt-BR')
-  }
-
-  function hojeISO() {
-    return new Date().toISOString().split('T')[0]
-  }
-
-  function inputParaBrasil(dataInput) {
-    if (!dataInput) return hojeBrasil()
-    const [ano, mes, dia] = dataInput.split('-')
-    return `${dia}/${mes}/${ano}`
-  }
-
-  function horaAtual() {
-    return new Date().toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  function aparelhoAtual() {
-    return navigator.userAgent || 'Dispositivo não identificado'
-  }
-
-  function pontosHojeDoUsuario(usuarioId) {
-    return pontos.filter(
-      (ponto) => ponto.usuario_id === usuarioId && ponto.data_iso === hojeISO()
-    )
-  }
-
-  function proximoTipoPonto(usuarioId) {
-    const registros = pontosHojeDoUsuario(usuarioId)
-    const temEntrada = registros.some((ponto) => ponto.tipo === 'Entrada')
-    const temSaida = registros.some((ponto) => ponto.tipo === 'Saída')
-
-    if (!temEntrada) return 'Entrada'
-    if (!temSaida) return 'Saída'
-    return 'Completo'
-  }
-
-  function fazerLogin() {
     const usuario = usuarios.find(
-      (u) =>
-        u.email.toLowerCase() === emailLogin.trim().toLowerCase() &&
-        u.senha === senhaLogin.trim()
+      (u) => u.email === email && u.senha === senha
     )
 
     if (!usuario) {
-      alert('E-mail ou senha incorretos.')
-      return
-    }
-
-    if (usuario.ativo === false) {
-      alert('Usuário bloqueado. Procure o gerente/master.')
+      alert('Usuário não encontrado')
       return
     }
 
     setUsuarioLogado(usuario)
-    setEmailLogin('')
-    setSenhaLogin('')
   }
 
   function sair() {
     setUsuarioLogado(null)
   }
 
-  async function registrarPonto() {
-    if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') {
-      alert('Somente funcionários podem bater ponto.')
+  async function cadastrarFuncionario() {
+    if (!novoNome || !novoEmail || !novaSenha) {
+      alert('Preencha todos os campos')
       return
     }
 
-    const tipo = proximoTipoPonto(usuarioLogado.id)
-
-    if (tipo === 'Completo') {
-      alert('Entrada e saída já foram registradas hoje.')
-      return
-    }
-
-    const novoPonto = {
-      usuario_id: usuarioLogado.id,
-      nome: usuarioLogado.nome,
-      data: hojeBrasil(),
-      data_iso: hojeISO(),
-      hora: horaAtual(),
-      tipo,
-      aparelho: aparelhoAtual(),
-    }
-
-    const { error } = await supabase.from('pontos').insert([novoPonto])
-
-    if (error) {
-      alert('Erro ao salvar ponto no banco online.')
-      console.log(error)
-      return
-    }
-
-    await carregarDados()
-    alert(`${tipo} registrada com sucesso às ${novoPonto.hora}`)
-  }
-
-  async function criarFuncionario() {
-    if (!novoNome.trim() || !novoEmail.trim() || !novaSenha.trim()) {
-      alert('Preencha nome, e-mail e senha.')
-      return
-    }
-
-    const emailExiste = usuarios.some(
-      (usuario) =>
-        usuario.email.toLowerCase() === novoEmail.trim().toLowerCase()
-    )
-
-    if (emailExiste) {
-      alert('Este e-mail já está cadastrado.')
-      return
-    }
-
-    const novoFuncionario = {
-      nome: novoNome.trim(),
-      email: novoEmail.trim().toLowerCase(),
-      senha: novaSenha.trim(),
-      tipo: 'funcionario',
-      ativo: true,
-    }
-
-    const { error } = await supabase.from('usuarios').insert([novoFuncionario])
-
-    if (error) {
-      alert('Erro ao criar funcionário.')
-      console.log(error)
-      return
-    }
+    await supabase.from('usuarios').insert([
+      {
+        nome: novoNome,
+        email: novoEmail,
+        senha: novaSenha,
+        tipo: 'funcionario',
+      },
+    ])
 
     setNovoNome('')
     setNovoEmail('')
     setNovaSenha('')
-    await carregarDados()
-    alert('Funcionário criado com sucesso!')
+
+    carregarUsuarios()
+
+    alert('Funcionário cadastrado')
   }
 
-  async function alterarStatusFuncionario(usuario) {
-    const novoStatus = !usuario.ativo
-
-    const confirmar = window.confirm(
-      novoStatus
-        ? `Deseja liberar o acesso de ${usuario.nome}?`
-        : `Deseja bloquear o acesso de ${usuario.nome}?`
+  async function excluirFuncionario(id) {
+    const confirmar = confirm(
+      'Deseja realmente excluir este funcionário?'
     )
 
     if (!confirmar) return
 
-    const { error } = await supabase
-      .from('usuarios')
-      .update({ ativo: novoStatus })
-      .eq('id', usuario.id)
-      .eq('tipo', 'funcionario')
+    await supabase.from('usuarios').delete().eq('id', id)
+
+    carregarUsuarios()
+  }
+
+  async function registrarPonto() {
+    const registrosUsuario = pontos.filter(
+      (p) => p.usuario_id === usuarioLogado.id
+    )
+
+    const ultimo =
+      registrosUsuario[0]?.tipo === 'Entrada'
+        ? 'Saída'
+        : 'Entrada'
+
+    const agora = new Date()
+
+    const data = agora.toLocaleDateString()
+    const hora = agora.toLocaleTimeString()
+
+    const { error } = await supabase.from('pontos').insert([
+      {
+        usuario_id: usuarioLogado.id,
+        nome: usuarioLogado.nome,
+        data,
+        hora,
+        tipo: ultimo,
+      },
+    ])
 
     if (error) {
-      alert('Erro ao alterar status do funcionário.')
-      console.log(error)
+      alert('Erro ao registrar ponto')
       return
     }
 
-    await carregarDados()
-    alert(novoStatus ? 'Funcionário liberado.' : 'Funcionário bloqueado.')
+    carregarPontos()
+
+    alert(`${ultimo} registrada com sucesso`)
   }
 
   function gerarRelatorio() {
-    return usuarios
-      .filter((usuario) => usuario.tipo === 'funcionario')
-      .map((usuario) => {
-        const registros = pontos.filter(
-          (ponto) =>
-            ponto.usuario_id === usuario.id && ponto.data_iso === dataRelatorio
-        )
+    const registros = pontos.filter(
+      (p) => {
+        const [dia, mes, ano] = p.data.split('/')
+        const dataFormatada = `${ano}-${mes}-${dia}`
 
-        const entrada = registros.find((ponto) => ponto.tipo === 'Entrada')
-        const saida = [...registros].reverse().find((ponto) => ponto.tipo === 'Saída')
+        return dataFormatada === dataRelatorio
+      }
+    )
 
-        return {
-          id: usuario.id,
-          nome: usuario.nome,
-          data: inputParaBrasil(dataRelatorio),
-          entrada: entrada ? entrada.hora : '-',
-          saida: saida ? saida.hora : '-',
-          status: usuario.ativo === false ? 'Bloqueado' : 'Ativo',
+    const agrupado = {}
+
+    registros.forEach((r) => {
+      if (!agrupado[r.nome]) {
+        agrupado[r.nome] = {
+          entrada: '',
+          saida: '',
+          data: r.data,
         }
-      })
+      }
+
+      if (r.tipo === 'Entrada') {
+        agrupado[r.nome].entrada = r.hora
+      }
+
+      if (r.tipo === 'Saída') {
+        agrupado[r.nome].saida = r.hora
+      }
+    })
+
+    return Object.keys(agrupado).map((nome) => ({
+      nome,
+      data: agrupado[nome].data,
+      entrada: agrupado[nome].entrada,
+      saida: agrupado[nome].saida,
+      status:
+        agrupado[nome].entrada && agrupado[nome].saida
+          ? 'Completo'
+          : 'Pendente',
+    }))
   }
 
-  const proximoPonto =
-    usuarioLogado?.tipo === 'funcionario'
-      ? proximoTipoPonto(usuarioLogado.id)
-      : ''
+  function exportarRelatorioCSV() {
+    const relatorio = gerarRelatorio()
 
-  const inputStyle = {
-    width: '100%',
-    padding: '14px',
-    marginBottom: '15px',
-    borderRadius: '10px',
-    border: '1px solid #cbd5e1',
-    fontSize: '16px',
-    backgroundColor: '#ffffff',
-    color: '#0f172a',
-    outline: 'none',
+    let csv = 'Funcionário;Data;Entrada;Saída;Status\n'
+
+    relatorio.forEach((linha) => {
+      csv += `${linha.nome};${linha.data};${linha.entrada};${linha.saida};${linha.status}\n`
+    })
+
+    const arquivo = new Blob([csv], {
+      type: 'text/csv;charset=utf-8;',
+    })
+
+    const url = URL.createObjectURL(arquivo)
+
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = `relatorio-${dataRelatorio}.csv`
+    link.click()
+
+    URL.revokeObjectURL(url)
   }
 
-  const buttonStyle = {
-    backgroundColor: '#001b5e',
-    color: '#ffffff',
-    border: 'none',
-    padding: '15px 28px',
-    borderRadius: '12px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    fontSize: '16px',
-  }
+  const relatorio = gerarRelatorio()
 
-  const thTdStyle = {
-    padding: '15px',
-    border: '1px solid #cbd5e1',
+  const containerStyle = {
+    maxWidth: '1000px',
+    margin: '40px auto',
+    backgroundColor: '#fff',
+    padding: '40px',
+    borderRadius: '20px',
+    boxShadow: '0 0 20px rgba(0,0,0,0.1)',
     textAlign: 'center',
   }
 
-  if (carregando) {
-    return (
-      <div className="app-container">
-        <main className="app-card">
-          <h1>Controle de Ponto</h1>
-          <p>Carregando sistema...</p>
-        </main>
-      </div>
-    )
+  const inputStyle = {
+    width: '100%',
+    padding: '15px',
+    marginBottom: '15px',
+    borderRadius: '10px',
+    border: '1px solid #ccc',
+    fontSize: '16px',
+  }
+
+  const buttonStyle = {
+    padding: '15px 30px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#001f6b',
+    color: '#fff',
+    fontSize: '18px',
+    cursor: 'pointer',
+    marginBottom: '20px',
   }
 
   return (
-    <div className="app-container">
-      <main className="app-card">
-        <h1>Controle de Ponto</h1>
+    <div style={containerStyle}>
+      <h1
+        style={{
+          fontSize: '60px',
+          color: '#0b1633',
+        }}
+      >
+        Controle de Ponto
+      </h1>
 
-        {!usuarioLogado ? (
-          <>
-            <p className="subtitle">Login do sistema</p>
+      {!usuarioLogado ? (
+        <>
+          <h2>Login do sistema</h2>
 
-            <div className="form-area">
+          <input
+            style={inputStyle}
+            placeholder="E-mail"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <input
+            style={inputStyle}
+            type="password"
+            placeholder="Senha"
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
+          />
+
+          <button style={buttonStyle} onClick={login}>
+            Entrar
+          </button>
+        </>
+      ) : (
+        <>
+          <h2>
+            Usuário logado:{' '}
+            <strong>{usuarioLogado.nome}</strong>
+          </h2>
+
+          <button style={buttonStyle} onClick={sair}>
+            Sair
+          </button>
+
+          <hr />
+
+          {usuarioLogado.tipo === 'master' && (
+            <>
+              <h2>Cadastrar Funcionário</h2>
+
+              <input
+                style={inputStyle}
+                placeholder="Nome"
+                value={novoNome}
+                onChange={(e) =>
+                  setNovoNome(e.target.value)
+                }
+              />
+
               <input
                 style={inputStyle}
                 placeholder="E-mail"
-                value={emailLogin}
-                onChange={(e) => setEmailLogin(e.target.value)}
+                value={novoEmail}
+                onChange={(e) =>
+                  setNovoEmail(e.target.value)
+                }
               />
 
               <input
                 style={inputStyle}
                 placeholder="Senha"
-                type="password"
-                value={senhaLogin}
-                onChange={(e) => setSenhaLogin(e.target.value)}
+                value={novaSenha}
+                onChange={(e) =>
+                  setNovaSenha(e.target.value)
+                }
               />
 
-              <button style={buttonStyle} onClick={fazerLogin}>
-                Entrar
+              <button
+                style={buttonStyle}
+                onClick={cadastrarFuncionario}
+              >
+                Cadastrar
               </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="subtitle">
-              Usuário logado: <strong>{usuarioLogado.nome}</strong>
-            </p>
 
-            <button
-              onClick={sair}
-              style={{
-                ...buttonStyle,
-                backgroundColor: '#64748b',
-                marginBottom: '30px',
-              }}
-            >
-              Sair
-            </button>
+              <h2>Funcionários</h2>
 
-            <hr />
-
-            {usuarioLogado.tipo === 'funcionario' && (
-              <section className="section-area">
-                <h2>Registrar Ponto</h2>
-
-                <p className="subtitle">
-                  Próximo registro:{' '}
-                  <strong>
-                    {proximoPonto === 'Completo'
-                      ? 'Entrada e saída já registradas hoje'
-                      : proximoPonto}
-                  </strong>
-                </p>
-
-                <button
+              {usuarios.map((u) => (
+                <div
+                  key={u.id}
                   style={{
-                    ...buttonStyle,
-                    opacity: proximoPonto === 'Completo' ? 0.6 : 1,
-                    cursor: proximoPonto === 'Completo' ? 'not-allowed' : 'pointer',
+                    background: '#f3f3f3',
+                    padding: '15px',
+                    marginBottom: '10px',
+                    borderRadius: '10px',
                   }}
-                  onClick={registrarPonto}
-                  disabled={proximoPonto === 'Completo'}
                 >
-                  {proximoPonto === 'Completo'
-                    ? 'Ponto Completo Hoje'
-                    : `Registrar ${proximoPonto}`}
-                </button>
-              </section>
-            )}
+                  <strong>{u.nome}</strong>
+                  <br />
+                  {u.email}
 
-            {usuarioLogado.tipo === 'master' && (
-              <section className="section-area">
-                <h2>Área Master / Gerente</h2>
+                  <br />
+                  <br />
 
-                <div className="form-area">
-                  <h3>Criar Funcionário</h3>
-
-                  <input
-                    style={inputStyle}
-                    placeholder="Nome do funcionário"
-                    value={novoNome}
-                    onChange={(e) => setNovoNome(e.target.value)}
-                  />
-
-                  <input
-                    style={inputStyle}
-                    placeholder="E-mail do funcionário"
-                    value={novoEmail}
-                    onChange={(e) => setNovoEmail(e.target.value)}
-                  />
-
-                  <input
-                    style={inputStyle}
-                    placeholder="Senha inicial"
-                    type="password"
-                    value={novaSenha}
-                    onChange={(e) => setNovaSenha(e.target.value)}
-                  />
-
-                  <button style={buttonStyle} onClick={criarFuncionario}>
-                    Criar Funcionário
+                  <button
+                    style={{
+                      ...buttonStyle,
+                      backgroundColor: '#dc2626',
+                    }}
+                    onClick={() =>
+                      excluirFuncionario(u.id)
+                    }
+                  >
+                    Excluir
                   </button>
                 </div>
+              ))}
 
-                <h3 className="report-title">Funcionários Cadastrados</h3>
+              <hr />
 
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th style={thTdStyle}>Funcionário</th>
-                        <th style={thTdStyle}>E-mail</th>
-                        <th style={thTdStyle}>Status</th>
-                        <th style={thTdStyle}>Ação</th>
-                      </tr>
-                    </thead>
+              <h2>Relatório</h2>
 
-                    <tbody>
-                      {usuarios
-                        .filter((usuario) => usuario.tipo === 'funcionario')
-                        .map((usuario) => (
-                          <tr key={usuario.id}>
-                            <td style={thTdStyle}>{usuario.nome}</td>
-                            <td style={thTdStyle}>{usuario.email}</td>
-                            <td style={thTdStyle}>
-                              {usuario.ativo === false ? 'Bloqueado' : 'Ativo'}
-                            </td>
-                            <td style={thTdStyle}>
-                              <button
-                                onClick={() => alterarStatusFuncionario(usuario)}
-                                style={{
-                                  ...buttonStyle,
-                                  backgroundColor:
-                                    usuario.ativo === false ? '#16a34a' : '#dc2626',
-                                  padding: '10px 18px',
-                                }}
-                              >
-                                {usuario.ativo === false ? 'Liberar' : 'Bloquear'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+              <input
+                type="date"
+                style={inputStyle}
+                value={dataRelatorio}
+                onChange={(e) =>
+                  setDataRelatorio(e.target.value)
+                }
+              />
+
+              <button
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: '#16a34a',
+                }}
+                onClick={exportarRelatorioCSV}
+              >
+                Exportar Relatório
+              </button>
+
+              {relatorio.map((r, index) => (
+                <div
+                  key={index}
+                  style={{
+                    background: '#f3f3f3',
+                    padding: '15px',
+                    marginBottom: '10px',
+                    borderRadius: '10px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <strong>{r.nome}</strong>
+                  <br />
+                  Data: {r.data}
+                  <br />
+                  Entrada: {r.entrada}
+                  <br />
+                  Saída: {r.saida}
+                  <br />
+                  Status: {r.status}
                 </div>
+              ))}
+            </>
+          )}
 
-                <h3 className="report-title">Relatório Diário de Ponto</h3>
+          {usuarioLogado.tipo !== 'master' && (
+            <>
+              <h1
+                style={{
+                  color: '#001f6b',
+                  marginTop: '40px',
+                }}
+              >
+                Registrar Ponto
+              </h1>
 
-                <div className="form-area">
-                  <label className="label-date">Escolher data do relatório</label>
+              <button
+                style={buttonStyle}
+                onClick={registrarPonto}
+              >
+                Registrar Ponto
+              </button>
+            </>
+          )}
+        </>
+      )}
 
-                  <input
-                    type="date"
-                    style={inputStyle}
-                    value={dataRelatorio}
-                    onChange={(e) => setDataRelatorio(e.target.value)}
-                  />
-                </div>
+      <br />
+      <br />
 
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th style={thTdStyle}>Funcionário</th>
-                        <th style={thTdStyle}>Data</th>
-                        <th style={thTdStyle}>Entrada</th>
-                        <th style={thTdStyle}>Saída</th>
-                        <th style={thTdStyle}>Status</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {gerarRelatorio().map((linha) => (
-                        <tr key={linha.id}>
-                          <td style={thTdStyle}>{linha.nome}</td>
-                          <td style={thTdStyle}>{linha.data}</td>
-                          <td style={thTdStyle}>{linha.entrada}</td>
-                          <td style={thTdStyle}>{linha.saida}</td>
-                          <td style={thTdStyle}>{linha.status}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-          </>
-        )}
-
-        <footer>DEVELOPED BY DINHO OLIVEIRA</footer>
-      </main>
+      <p
+        style={{
+          color: '#666',
+          letterSpacing: '2px',
+        }}
+      >
+        DEVELOPED BY DINHO OLIVEIRA
+      </p>
     </div>
   )
 }
