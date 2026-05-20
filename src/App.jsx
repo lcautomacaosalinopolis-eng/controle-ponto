@@ -2,30 +2,34 @@ import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 
 function App() {
+  const [empresas, setEmpresas] = useState([])
   const [usuarios, setUsuarios] = useState([])
+  const [pontos, setPontos] = useState([])
   const [usuarioLogado, setUsuarioLogado] = useState(null)
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [mensagem, setMensagem] = useState('')
+
+  const [novaEmpresa, setNovaEmpresa] = useState('')
+  const [emailMasterEmpresa, setEmailMasterEmpresa] = useState('')
+  const [senhaMasterEmpresa, setSenhaMasterEmpresa] = useState('')
 
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
 
-  const [pontos, setPontos] = useState([])
-
-  const [mensagem, setMensagem] = useState('')
-
   const [dataRelatorio, setDataRelatorio] = useState(
     new Date().toISOString().split('T')[0]
   )
 
-  async function carregarUsuarios() {
-    const { data } = await supabase
-      .from('usuarios')
-      .select('*')
-      .order('id')
+  async function carregarEmpresas() {
+    const { data } = await supabase.from('empresas').select('*').order('id')
+    if (data) setEmpresas(data)
+  }
 
+  async function carregarUsuarios() {
+    const { data } = await supabase.from('usuarios').select('*').order('id')
     if (data) setUsuarios(data)
   }
 
@@ -39,36 +43,27 @@ function App() {
   }
 
   useEffect(() => {
+    carregarEmpresas()
     carregarUsuarios()
     carregarPontos()
 
     const canal = supabase
       .channel('tempo-real')
-
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'pontos',
-        },
-        async () => {
-          await carregarPontos()
-        }
+        { event: '*', schema: 'public', table: 'pontos' },
+        async () => carregarPontos()
       )
-
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'usuarios',
-        },
-        async () => {
-          await carregarUsuarios()
-        }
+        { event: '*', schema: 'public', table: 'usuarios' },
+        async () => carregarUsuarios()
       )
-
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'empresas' },
+        async () => carregarEmpresas()
+      )
       .subscribe()
 
     return () => {
@@ -78,10 +73,7 @@ function App() {
 
   function mostrarMensagem(texto) {
     setMensagem(texto)
-
-    setTimeout(() => {
-      setMensagem('')
-    }, 4000)
+    setTimeout(() => setMensagem(''), 4000)
   }
 
   function hojeISO() {
@@ -101,19 +93,45 @@ function App() {
   }
 
   async function login() {
-    if (email === 'master@empresa.com' && senha === 'pontoemp01') {
+    if (email === 'programador@lc.com' && senha === '@Lc135910#') {
+      setUsuarioLogado({
+        nome: 'PROGRAMADOR',
+        tipo: 'programador',
+        email,
+        empresa_id: null,
+      })
+
+      setEmail('')
+      setSenha('')
+      mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
+      return
+    }
+
+    const empresaMaster = empresas.find(
+      (empresa) =>
+        empresa.email_master?.toLowerCase() === email.toLowerCase() &&
+        empresa.senha_master === senha &&
+        empresa.ativo !== false
+    )
+
+    if (empresaMaster) {
       setUsuarioLogado({
         nome: 'MASTER',
         tipo: 'master',
         email,
+        empresa_id: empresaMaster.id,
+        empresa_nome: empresaMaster.nome,
       })
 
+      setEmail('')
+      setSenha('')
+      mostrarMensagem('Login MASTER realizado com sucesso.')
       return
     }
 
     const usuario = usuarios.find(
       (u) =>
-        u.email.toLowerCase() === email.toLowerCase() &&
+        u.email?.toLowerCase() === email.toLowerCase() &&
         u.senha === senha
     )
 
@@ -122,11 +140,47 @@ function App() {
       return
     }
 
+    if (usuario.ativo === false) {
+      mostrarMensagem('Usuário bloqueado.')
+      return
+    }
+
     setUsuarioLogado(usuario)
+    setEmail('')
+    setSenha('')
+    mostrarMensagem('Login realizado com sucesso.')
   }
 
   function sair() {
     setUsuarioLogado(null)
+  }
+
+  async function criarEmpresa() {
+    if (!novaEmpresa || !emailMasterEmpresa || !senhaMasterEmpresa) {
+      mostrarMensagem('Preencha nome da empresa, e-mail master e senha master.')
+      return
+    }
+
+    const { error } = await supabase.from('empresas').insert([
+      {
+        nome: novaEmpresa,
+        email_master: emailMasterEmpresa.toLowerCase(),
+        senha_master: senhaMasterEmpresa,
+        ativo: true,
+      },
+    ])
+
+    if (error) {
+      mostrarMensagem('Erro ao criar empresa.')
+      return
+    }
+
+    setNovaEmpresa('')
+    setEmailMasterEmpresa('')
+    setSenhaMasterEmpresa('')
+    await carregarEmpresas()
+
+    mostrarMensagem('Empresa criada com sucesso!')
   }
 
   async function cadastrarFuncionario() {
@@ -135,12 +189,19 @@ function App() {
       return
     }
 
+    if (!usuarioLogado.empresa_id) {
+      mostrarMensagem('Selecione uma empresa válida.')
+      return
+    }
+
     const { error } = await supabase.from('usuarios').insert([
       {
         nome: novoNome,
-        email: novoEmail,
+        email: novoEmail.toLowerCase(),
         senha: novaSenha,
         tipo: 'funcionario',
+        empresa_id: usuarioLogado.empresa_id,
+        ativo: true,
       },
     ])
 
@@ -152,22 +213,17 @@ function App() {
     setNovoNome('')
     setNovoEmail('')
     setNovaSenha('')
-
-    carregarUsuarios()
+    await carregarUsuarios()
 
     mostrarMensagem('Funcionário cadastrado com sucesso!')
   }
 
   async function excluirFuncionario(id) {
-    const confirmar = confirm(
-      'Deseja realmente excluir este funcionário?'
-    )
-
+    const confirmar = confirm('Deseja realmente excluir este funcionário?')
     if (!confirmar) return
 
     await supabase.from('usuarios').delete().eq('id', id)
-
-    carregarUsuarios()
+    await carregarUsuarios()
 
     mostrarMensagem('Funcionário excluído.')
   }
@@ -179,18 +235,11 @@ function App() {
         p.data_iso === hojeISO()
     )
 
-    const entrada = registrosHoje.find(
-      (p) => p.tipo === 'Entrada'
-    )
-
-    const saida = registrosHoje.find(
-      (p) => p.tipo === 'Saída'
-    )
+    const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
+    const saida = registrosHoje.find((p) => p.tipo === 'Saída')
 
     if (entrada && saida) {
-      mostrarMensagem(
-        'Você já registrou entrada e saída hoje.'
-      )
+      mostrarMensagem('Você já registrou entrada e saída hoje.')
       return
     }
 
@@ -199,6 +248,7 @@ function App() {
     const { error } = await supabase.from('pontos').insert([
       {
         usuario_id: usuarioLogado.id,
+        empresa_id: usuarioLogado.empresa_id,
         nome: usuarioLogado.nome,
         data: hojeBR(),
         data_iso: hojeISO(),
@@ -213,14 +263,32 @@ function App() {
     }
 
     await carregarPontos()
-
     mostrarMensagem(`✅ ${tipo} registrada com sucesso!`)
   }
 
-  function gerarRelatorio() {
-    const registros = pontos.filter(
-      (p) => p.data_iso === dataRelatorio
+  function empresasVisiveis() {
+    if (usuarioLogado?.tipo === 'programador') return empresas
+    return empresas.filter((empresa) => empresa.id === usuarioLogado?.empresa_id)
+  }
+
+  function usuariosVisiveis() {
+    if (usuarioLogado?.tipo === 'programador') return usuarios
+
+    return usuarios.filter(
+      (usuario) => usuario.empresa_id === usuarioLogado?.empresa_id
     )
+  }
+
+  function gerarRelatorio(empresaId = usuarioLogado?.empresa_id) {
+    const registros = pontos.filter((p) => {
+      if (p.data_iso !== dataRelatorio) return false
+
+      if (usuarioLogado?.tipo === 'programador') {
+        return empresaId ? p.empresa_id === empresaId : true
+      }
+
+      return p.empresa_id === usuarioLogado?.empresa_id
+    })
 
     const agrupado = {}
 
@@ -233,13 +301,8 @@ function App() {
         }
       }
 
-      if (r.tipo === 'Entrada') {
-        agrupado[r.nome].entrada = r.hora
-      }
-
-      if (r.tipo === 'Saída') {
-        agrupado[r.nome].saida = r.hora
-      }
+      if (r.tipo === 'Entrada') agrupado[r.nome].entrada = r.hora
+      if (r.tipo === 'Saída') agrupado[r.nome].saida = r.hora
     })
 
     return Object.keys(agrupado).map((nome) => ({
@@ -248,8 +311,7 @@ function App() {
       entrada: agrupado[nome].entrada,
       saida: agrupado[nome].saida,
       status:
-        agrupado[nome].entrada &&
-        agrupado[nome].saida
+        agrupado[nome].entrada && agrupado[nome].saida
           ? 'Completo'
           : 'Pendente',
     }))
@@ -258,8 +320,6 @@ function App() {
   function exportarRelatorioPDF() {
     window.print()
   }
-
-  const relatorio = gerarRelatorio()
 
   const containerStyle = {
     maxWidth: '1000px',
@@ -309,12 +369,7 @@ function App() {
         </div>
       )}
 
-      <h1
-        style={{
-          fontSize: '60px',
-          color: '#0b1633',
-        }}
-      >
+      <h1 style={{ fontSize: '60px', color: '#0b1633' }}>
         Controle de Ponto
       </h1>
 
@@ -344,9 +399,12 @@ function App() {
       ) : (
         <>
           <h2>
-            Usuário logado:{' '}
-            <strong>{usuarioLogado.nome}</strong>
+            Usuário logado: <strong>{usuarioLogado.nome}</strong>
           </h2>
+
+          {usuarioLogado.empresa_nome && (
+            <h3>Empresa: {usuarioLogado.empresa_nome}</h3>
+          )}
 
           <button style={buttonStyle} onClick={sair}>
             Sair
@@ -354,117 +412,46 @@ function App() {
 
           <hr />
 
-          {usuarioLogado.tipo === 'master' && (
+          {usuarioLogado.tipo === 'programador' && (
             <>
-              <h2>Cadastrar Funcionário</h2>
-
-              <input
-                style={inputStyle}
-                placeholder="Nome"
-                value={novoNome}
-                onChange={(e) => setNovoNome(e.target.value)}
-              />
-
-              <input
-                style={inputStyle}
-                placeholder="E-mail"
-                value={novoEmail}
-                onChange={(e) => setNovoEmail(e.target.value)}
-              />
-
-              <input
-                style={inputStyle}
-                placeholder="Senha"
-                value={novaSenha}
-                onChange={(e) => setNovaSenha(e.target.value)}
-              />
-
-              <button
-                style={buttonStyle}
-                onClick={cadastrarFuncionario}
-              >
-                Cadastrar
-              </button>
-
-              <h1
-                style={{
-                  color: '#1d4ed8',
-                  marginTop: '50px',
-                }}
-              >
-                Funcionários
+              <h1 style={{ color: '#1d4ed8', marginTop: '40px' }}>
+                Painel Programador / Multiempresas
               </h1>
 
-              {usuarios.map((u) => (
-                <div
-                  key={u.id}
-                  style={{
-                    background: '#f3f3f3',
-                    padding: '20px',
-                    borderRadius: '10px',
-                    marginBottom: '10px',
-                  }}
-                >
-                  <strong>{u.nome}</strong>
-
-                  <br />
-
-                  {u.email}
-
-                  <br />
-
-                  Senha: {u.senha}
-
-                  <br />
-                  <br />
-
-                  <button
-                    style={{
-                      ...buttonStyle,
-                      backgroundColor: '#dc2626',
-                    }}
-                    onClick={() =>
-                      excluirFuncionario(u.id)
-                    }
-                  >
-                    Excluir
-                  </button>
-                </div>
-              ))}
-
-              <hr />
-
-              <h1
-                style={{
-                  color: '#1d4ed8',
-                  marginTop: '50px',
-                }}
-              >
-                Relatório
-              </h1>
+              <h2>Criar Empresa</h2>
 
               <input
-                type="date"
                 style={inputStyle}
-                value={dataRelatorio}
-                onChange={(e) =>
-                  setDataRelatorio(e.target.value)
-                }
+                placeholder="Nome da empresa"
+                value={novaEmpresa}
+                onChange={(e) => setNovaEmpresa(e.target.value)}
               />
 
-              <button
-                style={{
-                  ...buttonStyle,
-                  backgroundColor: '#16a34a',
-                }}
-                onClick={exportarRelatorioPDF}
-              >
-                Exportar PDF
+              <input
+                style={inputStyle}
+                placeholder="E-mail master da empresa"
+                value={emailMasterEmpresa}
+                onChange={(e) => setEmailMasterEmpresa(e.target.value)}
+              />
+
+              <input
+                style={inputStyle}
+                placeholder="Senha master da empresa"
+                value={senhaMasterEmpresa}
+                onChange={(e) => setSenhaMasterEmpresa(e.target.value)}
+              />
+
+              <button style={buttonStyle} onClick={criarEmpresa}>
+                Criar Empresa
               </button>
 
-              {relatorio.map((r, index) => (
+              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
+                Empresas Cadastradas
+              </h1>
+
+              {empresas.map((empresa) => (
                 <div
-                  key={index}
+                  key={empresa.id}
                   style={{
                     background: '#f3f3f3',
                     padding: '20px',
@@ -473,43 +460,151 @@ function App() {
                     textAlign: 'left',
                   }}
                 >
-                  <strong>{r.nome}</strong>
-
+                  <strong>{empresa.nome}</strong>
                   <br />
-
-                  Data: {r.data}
-
+                  ID: {empresa.id}
                   <br />
-
-                  Entrada: {r.entrada || '-'}
-
+                  Master: {empresa.email_master}
                   <br />
+                  Senha Master: {empresa.senha_master}
+                </div>
+              ))}
 
-                  Saída: {r.saida || '-'}
+              <hr />
+            </>
+          )}
 
-                  <br />
+          {(usuarioLogado.tipo === 'master' ||
+            usuarioLogado.tipo === 'programador') && (
+            <>
+              {usuarioLogado.tipo === 'master' && (
+                <>
+                  <h2>Cadastrar Funcionário</h2>
 
-                  Status: {r.status}
+                  <input
+                    style={inputStyle}
+                    placeholder="Nome"
+                    value={novoNome}
+                    onChange={(e) => setNovoNome(e.target.value)}
+                  />
+
+                  <input
+                    style={inputStyle}
+                    placeholder="E-mail"
+                    value={novoEmail}
+                    onChange={(e) => setNovoEmail(e.target.value)}
+                  />
+
+                  <input
+                    style={inputStyle}
+                    placeholder="Senha"
+                    value={novaSenha}
+                    onChange={(e) => setNovaSenha(e.target.value)}
+                  />
+
+                  <button style={buttonStyle} onClick={cadastrarFuncionario}>
+                    Cadastrar
+                  </button>
+                </>
+              )}
+
+              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
+                Funcionários
+              </h1>
+
+              {usuariosVisiveis()
+                .filter((u) => u.tipo === 'funcionario')
+                .map((u) => (
+                  <div
+                    key={u.id}
+                    style={{
+                      background: '#f3f3f3',
+                      padding: '20px',
+                      borderRadius: '10px',
+                      marginBottom: '10px',
+                    }}
+                  >
+                    <strong>{u.nome}</strong>
+                    <br />
+                    Empresa ID: {u.empresa_id}
+                    <br />
+                    {u.email}
+                    <br />
+                    Senha: {u.senha}
+                    <br />
+                    <br />
+
+                    <button
+                      style={{ ...buttonStyle, backgroundColor: '#dc2626' }}
+                      onClick={() => excluirFuncionario(u.id)}
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                ))}
+
+              <hr />
+
+              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
+                Relatório
+              </h1>
+
+              <input
+                type="date"
+                style={inputStyle}
+                value={dataRelatorio}
+                onChange={(e) => setDataRelatorio(e.target.value)}
+              />
+
+              <button
+                style={{ ...buttonStyle, backgroundColor: '#16a34a' }}
+                onClick={exportarRelatorioPDF}
+              >
+                Exportar PDF
+              </button>
+
+              {empresasVisiveis().map((empresa) => (
+                <div key={empresa.id}>
+                  {usuarioLogado.tipo === 'programador' && (
+                    <h2 style={{ color: '#001f6b' }}>
+                      Empresa: {empresa.nome}
+                    </h2>
+                  )}
+
+                  {gerarRelatorio(empresa.id).map((r, index) => (
+                    <div
+                      key={`${empresa.id}-${index}`}
+                      style={{
+                        background: '#f3f3f3',
+                        padding: '20px',
+                        borderRadius: '10px',
+                        marginBottom: '10px',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <strong>{r.nome}</strong>
+                      <br />
+                      Data: {r.data}
+                      <br />
+                      Entrada: {r.entrada || '-'}
+                      <br />
+                      Saída: {r.saida || '-'}
+                      <br />
+                      Status: {r.status}
+                    </div>
+                  ))}
                 </div>
               ))}
             </>
           )}
 
-          {usuarioLogado.tipo !== 'master' && (
+          {usuarioLogado.tipo === 'funcionario' && (
             <>
-              <h1
-                style={{
-                  color: '#001f6b',
-                  marginTop: '40px',
-                }}
-              >
+              <h1 style={{ color: '#001f6b', marginTop: '40px' }}>
                 Registrar Ponto
               </h1>
 
-              <button
-                style={buttonStyle}
-                onClick={registrarPonto}
-              >
+              <button style={buttonStyle} onClick={registrarPonto}>
                 Registrar Ponto
               </button>
             </>
@@ -520,12 +615,7 @@ function App() {
       <br />
       <br />
 
-      <p
-        style={{
-          color: '#666',
-          letterSpacing: '2px',
-        }}
-      >
+      <p style={{ color: '#666', letterSpacing: '2px' }}>
         DEVELOPED BY DINHO OLIVEIRA
       </p>
     </div>
