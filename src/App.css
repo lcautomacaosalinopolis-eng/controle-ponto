@@ -1,0 +1,43 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f1f5f9;
+}
+
+button,
+input {
+  font-family: Arial, sans-serif;
+}
+
+@media (max-width: 600px) {
+  h1 {
+    font-size: 36px !important;
+  }
+
+  h2 {
+    font-size: 28px !important;
+  }
+
+  main {
+    border-radius: 14px !important;
+    padding: 20px !important;
+  }
+
+  input,
+  button {
+    width: 100%;
+  }
+
+  table {
+    font-size: 14px !important;
+  }
+
+  th,
+  td {
+    padding: 10px !important;
+  }
+}
