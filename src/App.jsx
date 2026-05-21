@@ -380,46 +380,57 @@ setNovoFazAlmoco(true)
     return usuarios.filter((usuario) => usuario.empresa_id === usuarioLogado?.empresa_id)
   }
 
-  function gerarRelatorio(empresaId = usuarioLogado?.empresa_id) {
-    const idEmpresa = usuarioLogado?.tipo === 'programador' ? empresaSelecionada : empresaId
+ function gerarRelatorio(empresaId = usuarioLogado?.empresa_id) {
+  const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
 
-    const registros = pontos.filter((p) => {
-      if (!idEmpresa) return false
-      return p.data_iso === dataRelatorio && p.empresa_id === idEmpresa
-    })
+  const registros = pontos.filter((p) => {
+    if (!idEmpresa) return false
+    return p.data_iso === dataRelatorio && p.empresa_id === idEmpresa
+  })
 
-    const agrupado = {}
+  const agrupado = {}
 
-    registros.forEach((r) => {
-      if (!agrupado[r.nome]) {
-        agrupado[r.nome] = {
-          entrada: '',
-          saida: '',
-          data: r.data,
-        }
-      }
-
-      if (r.tipo === 'Entrada') {
-        agrupado[r.nome].entrada = formatarHoraServidor(r.registrado_em, r.hora)
-      }
-
-      if (r.tipo === 'Saída') {
-        agrupado[r.nome].saida = formatarHoraServidor(r.registrado_em, r.hora)
-      }
-    })
-
-    return Object.keys(agrupado).map((nome) => ({
-      nome,
-      data: agrupado[nome].data,
-      entrada: agrupado[nome].entrada,
-      saida: agrupado[nome].saida,
-      status:
-        agrupado[nome].entrada && agrupado[nome].saida
-          ? 'Completo'
-          : 'Pendente',
-    }))
+  registros.forEach((r) => {
+    if (!agrupado[r.nome]) {
+  agrupado[r.nome] = {
+    entrada: '',
+    saidaAlmoco: '',
+    voltaAlmoco: '',
+    saida: '',
+    data: r.data,
   }
+}
 
+    if (r.tipo === 'Entrada') {
+      agrupado[r.nome].entrada = formatarHoraServidor(r.registrado_em, r.hora)
+    }
+
+    if (r.tipo === 'Saída Almoço') {
+      agrupado[r.nome].saidaAlmoco = formatarHoraServidor(r.registrado_em, r.hora)
+    }
+
+    if (r.tipo === 'Volta Almoço') {
+      agrupado[r.nome].voltaAlmoco = formatarHoraServidor(r.registrado_em, r.hora)
+    }
+
+    if (r.tipo === 'Saída') {
+      agrupado[r.nome].saida = formatarHoraServidor(r.registrado_em, r.hora)
+    }
+  })
+
+  return Object.keys(agrupado).map((nome) => ({
+    nome,
+    data: agrupado[nome].data,
+    entrada: agrupado[nome].entrada,
+    saidaAlmoco: agrupado[nome].saidaAlmoco,
+    voltaAlmoco: agrupado[nome].voltaAlmoco,
+    saida: agrupado[nome].saida,
+    status:
+      agrupado[nome].entrada && agrupado[nome].saida
+        ? 'Completo'
+        : 'Pendente',
+  }))
+}
  function exportarRelatorioPDF() {
 
   const empresaAtual = empresas.find(
@@ -946,10 +957,14 @@ onChange={(e) => setEditFazAlmoco(e.target.checked)}
                         Data: {r.data}
                         <br />
                         Entrada: {r.entrada || '-'}
-                        <br />
-                        Saída: {r.saida || '-'}
-                        <br />
-                        Status: {r.status}
+<br />
+Saída almoço: {r.saidaAlmoco || '-'}
+<br />
+Volta almoço: {r.voltaAlmoco || '-'}
+<br />
+Saída casa: {r.saida || '-'}
+<br />
+Status: {r.status}
                       </div>
                     ))}
                   </div>
