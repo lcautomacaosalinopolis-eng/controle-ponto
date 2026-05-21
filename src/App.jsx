@@ -16,6 +16,7 @@ function App() {
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
+const [novoFazAlmoco, setNovoFazAlmoco] = useState(true)
 const [salvarLogin, setSalvarLogin] = useState(false)
 const [funcionarioEditando, setFuncionarioEditando] = useState(null)
 
@@ -24,6 +25,7 @@ const [editNome, setEditNome] = useState('')
 const [editEmail, setEditEmail] = useState('')
 
 const [editSenha, setEditSenha] = useState('')
+const [editFazAlmoco, setEditFazAlmoco] = useState(true)
   const [dataRelatorio, setDataRelatorio] = useState(new Date().toISOString().split('T')[0])
 
   async function carregarEmpresas() {
@@ -260,6 +262,7 @@ if (salvarLogin) {
         nome: novoNome,
         email: novoEmail.toLowerCase(),
         senha: novaSenha,
+        faz_almoco: novoFazAlmoco,
         tipo: 'funcionario',
         empresa_id: empresaId,
         ativo: true,
@@ -274,6 +277,7 @@ if (salvarLogin) {
     setNovoNome('')
     setNovoEmail('')
     setNovaSenha('')
+setNovoFazAlmoco(true)
     await carregarUsuarios()
     mostrarMensagem('Funcionário cadastrado com sucesso!')
   }
@@ -287,38 +291,77 @@ if (salvarLogin) {
     mostrarMensagem('Funcionário excluído.')
   }
 
-  async function registrarPonto() {
-    const registrosHoje = pontos.filter(
-      (p) => p.usuario_id === usuarioLogado.id && p.data_iso === hojeISO()
-    )
+ async function registrarPonto() {
 
-    const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
-    const saida = registrosHoje.find((p) => p.tipo === 'Saída')
+  const registrosHoje = pontos.filter(
+    (p) =>
+      p.usuario_id === usuarioLogado.id &&
+      p.data_iso === hojeISO()
+  )
 
-    if (entrada && saida) {
+  const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
+  const saidaAlmoco = registrosHoje.find((p) => p.tipo === 'Saída Almoço')
+  const voltaAlmoco = registrosHoje.find((p) => p.tipo === 'Volta Almoço')
+  const saida = registrosHoje.find((p) => p.tipo === 'Saída')
+
+  let tipo = ''
+
+  if (usuarioLogado.faz_almoco) {
+
+    if (!entrada) {
+      tipo = 'Entrada'
+    }
+
+    else if (!saidaAlmoco) {
+      tipo = 'Saída Almoço'
+    }
+
+    else if (!voltaAlmoco) {
+      tipo = 'Volta Almoço'
+    }
+
+    else if (!saida) {
+      tipo = 'Saída'
+    }
+
+    else {
+      mostrarMensagem('Você já registrou todos os pontos de hoje.')
+      return
+    }
+
+  } else {
+
+    if (!entrada) {
+      tipo = 'Entrada'
+    }
+
+    else if (!saida) {
+      tipo = 'Saída'
+    }
+
+    else {
       mostrarMensagem('Você já registrou entrada e saída hoje.')
       return
     }
 
-    const tipo = entrada ? 'Saída' : 'Entrada'
+  }
 
-    const { error } = await supabase.from('pontos').insert([
-      {
-        usuario_id: usuarioLogado.id,
-        empresa_id: usuarioLogado.empresa_id,
-        nome: usuarioLogado.nome,
-        data: hojeBR(),
-        data_iso: hojeISO(),
-        hora: horaAtual(),
-        tipo,
-      },
-    ])
+  const { error } = await supabase.from('pontos').insert([
+    {
+      usuario_id: usuarioLogado.id,
+      empresa_id: usuarioLogado.empresa_id,
+      nome: usuarioLogado.nome,
+      data: hojeBR(),
+      data_iso: hojeISO(),
+      hora: horaAtual(),
+      tipo,
+    },
+  ])
 
-    if (error) {
-      mostrarMensagem('Erro ao registrar ponto.')
-      return
-    }
-
+  if (error) {
+    mostrarMensagem('Erro ao registrar ponto.')
+    return
+  }
     await carregarPontos()
     mostrarMensagem(`✅ ${tipo} registrada com sucesso!`)
   }
@@ -538,6 +581,7 @@ function abrirEdicaoFuncionario(usuario) {
   setEditEmail(usuario.email)
 
   setEditSenha(usuario.senha)
+setEditFazAlmoco(usuario.faz_almoco !== false)
 
   mostrarMensagem(
     'Editando funcionário: ' + usuario.nome
@@ -568,6 +612,7 @@ async function salvarEdicaoFuncionario() {
       email: editEmail.toLowerCase(),
 
       senha: editSenha,
+faz_almoco: editFazAlmoco,
 
     })
     .eq(
@@ -628,6 +673,7 @@ async function salvarEdicaoFuncionario() {
           <input style={inputStyle} placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
 
           <input style={inputStyle} type="password" placeholder="Senha" value={senha} onChange={(e) => setSenha(e.target.value)} />
+
 <label
   style={{
     display: 'block',
@@ -730,6 +776,14 @@ async function salvarEdicaoFuncionario() {
                   <input style={inputStyle} placeholder="E-mail" value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} />
 
                   <input style={inputStyle} placeholder="Senha" value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} />
+<label style={{ display: 'block', marginBottom: '20px' }}>
+  <input
+    type="checkbox"
+    checked={novoFazAlmoco}
+    onChange={(e) => setNovoFazAlmoco(e.target.checked)}
+  />
+  {' '}Intervalo para almoço
+</label>
 
                   <button style={buttonStyle} onClick={cadastrarFuncionario}>
                     Cadastrar
@@ -815,6 +869,20 @@ async function salvarEdicaoFuncionario() {
       value={editSenha}
       onChange={(e) => setEditSenha(e.target.value)}
     />
+<label
+style={{
+display: 'block',
+marginTop: '10px',
+marginBottom: '20px'
+}}
+>
+<input
+type="checkbox"
+checked={editFazAlmoco}
+onChange={(e) => setEditFazAlmoco(e.target.checked)}
+/>
+{' '}Intervalo para almoço
+</label>
 
     <button
       style={buttonStyle}
@@ -905,10 +973,9 @@ async function salvarEdicaoFuncionario() {
 
       <br />
       <br />
-
-      <p style={{ color: '#666', letterSpacing: '2px' }}>
-        DEVELOPED BY DINHO OLIVEIRA
-      </p>
+<p style={{ color: '#666', letterSpacing: '2px', fontSize: '11px' }}>
+  DEVELOPED BY DINHO OLIVEIRA
+</p>
     </div>
   )
 }
