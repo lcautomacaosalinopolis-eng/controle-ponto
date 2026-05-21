@@ -26,7 +26,13 @@ const [editEmail, setEditEmail] = useState('')
 
 const [editSenha, setEditSenha] = useState('')
 const [editFazAlmoco, setEditFazAlmoco] = useState(true)
+const [mostrarFuncionarios, setMostrarFuncionarios] = useState(false)
+const [buscaFuncionario, setBuscaFuncionario] = useState('')
   const [dataRelatorio, setDataRelatorio] = useState(new Date().toISOString().split('T')[0])
+  const [mesRelatorioMensal, setMesRelatorioMensal] = useState(new Date().toISOString().slice(0, 7))
+  const [funcionarioRelatorioMensal, setFuncionarioRelatorioMensal] = useState('todos')
+  const [horaInicioRelatorioMensal, setHoraInicioRelatorioMensal] = useState('')
+  const [horaFimRelatorioMensal, setHoraFimRelatorioMensal] = useState('')
 
   async function carregarEmpresas() {
     const { data } = await supabase.from('empresas').select('*').order('id')
@@ -431,6 +437,61 @@ setNovoFazAlmoco(true)
         : 'Pendente',
   }))
 }
+
+function horaParaMinutos(hora) {
+  if (!hora || hora === '-') return null
+
+  const partes = hora.split(':')
+
+  if (partes.length < 2) return null
+
+  return Number(partes[0]) * 60 + Number(partes[1])
+}
+
+function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
+  const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
+
+  if (!idEmpresa || !mesRelatorioMensal) return []
+
+  const inicioFiltro = horaInicioRelatorioMensal ? horaParaMinutos(horaInicioRelatorioMensal) : null
+  const fimFiltro = horaFimRelatorioMensal ? horaParaMinutos(horaFimRelatorioMensal) : null
+
+  return pontos
+    .filter((p) => {
+      if (p.empresa_id !== idEmpresa) return false
+      if (!p.data_iso?.startsWith(mesRelatorioMensal)) return false
+
+      if (
+        funcionarioRelatorioMensal !== 'todos' &&
+        String(p.usuario_id) !== String(funcionarioRelatorioMensal)
+      ) {
+        return false
+      }
+
+      const horaRegistro = formatarHoraServidor(p.registrado_em, p.hora)
+      const minutosRegistro = horaParaMinutos(horaRegistro)
+
+      if (inicioFiltro !== null && minutosRegistro !== null && minutosRegistro < inicioFiltro) return false
+      if (fimFiltro !== null && minutosRegistro !== null && minutosRegistro > fimFiltro) return false
+
+      return true
+    })
+    .map((p) => ({
+      id: p.id,
+      usuario_id: p.usuario_id,
+      nome: p.nome,
+      data: p.data,
+      data_iso: p.data_iso,
+      tipo: p.tipo,
+      hora: formatarHoraServidor(p.registrado_em, p.hora),
+    }))
+    .sort((a, b) => {
+      const dataComparacao = (a.data_iso || '').localeCompare(b.data_iso || '')
+      if (dataComparacao !== 0) return dataComparacao
+
+      return (a.hora || '').localeCompare(b.hora || '')
+    })
+}
  function exportarRelatorioPDF() {
 
   const empresaAtual = empresas.find(
@@ -555,34 +616,60 @@ setNovoFazAlmoco(true)
 }
 
   const containerStyle = {
-    maxWidth: '1000px',
-    margin: '40px auto',
-    backgroundColor: '#fff',
-    padding: '40px',
-    borderRadius: '20px',
-    boxShadow: '0 0 20px rgba(0,0,0,0.1)',
+    maxWidth: usuarioLogado ? '1120px' : '430px',
+    margin: '24px auto',
+    backgroundColor: '#ffffff',
+    padding: usuarioLogado ? '0' : '32px 24px',
+    borderRadius: '24px',
+    boxShadow: '0 18px 45px rgba(15, 23, 42, 0.12)',
     textAlign: 'center',
+    overflow: 'hidden',
   }
 
   const inputStyle = {
     width: '100%',
-    padding: '15px',
-    marginBottom: '15px',
-    borderRadius: '10px',
-    border: '1px solid #ccc',
+    padding: '16px',
+    marginBottom: '14px',
+    borderRadius: '14px',
+    border: '1px solid #d8dee9',
     fontSize: '16px',
+    boxSizing: 'border-box',
+    outline: 'none',
+    backgroundColor: '#fff',
   }
 
   const buttonStyle = {
-    padding: '15px 30px',
-    borderRadius: '10px',
+    width: '100%',
+    padding: '16px 22px',
+    borderRadius: '14px',
     border: 'none',
-    backgroundColor: '#001f6b',
+    background: 'linear-gradient(180deg, #0b5cff 0%, #0046c7 100%)',
     color: '#fff',
-    fontSize: '18px',
+    fontSize: '17px',
+    fontWeight: 'bold',
     cursor: 'pointer',
-    marginBottom: '20px',
+    marginBottom: '14px',
+    boxShadow: '0 10px 24px rgba(0, 70, 199, 0.25)',
   }
+
+  const sectionStyle = {
+    background: '#ffffff',
+    borderRadius: '22px',
+    padding: '24px',
+    marginBottom: '22px',
+    boxShadow: '0 10px 28px rgba(15, 23, 42, 0.08)',
+    textAlign: 'left',
+  }
+
+  const cardStyle = {
+    background: '#f8fbff',
+    border: '1px solid #e6edf7',
+    padding: '18px',
+    borderRadius: '18px',
+    marginBottom: '14px',
+    textAlign: 'left',
+  }
+
 function abrirEdicaoFuncionario(usuario) {
 
   setFuncionarioEditando(usuario)
@@ -656,341 +743,528 @@ faz_almoco: editFazAlmoco,
 }
 
   return (
-    <div style={containerStyle}>
-      {mensagem && (
-        <div
-          style={{
-            background: '#16a34a',
-            color: '#fff',
-            padding: '20px',
-            borderRadius: '15px',
-            marginBottom: '20px',
-            fontSize: '24px',
-            fontWeight: 'bold',
-          }}
-        >
-          {mensagem}
-        </div>
-      )}
+    <div style={{ minHeight: '100vh', background: '#eef4fb', padding: '18px' }}>
+      <div style={containerStyle}>
+        {mensagem && (
+          <div
+            style={{
+              background: '#16a34a',
+              color: '#fff',
+              padding: '16px',
+              borderRadius: '16px',
+              marginBottom: '18px',
+              fontSize: '17px',
+              fontWeight: 'bold',
+            }}
+          >
+            {mensagem}
+          </div>
+        )}
 
-      <h1 style={{ fontSize: '60px', color: '#0b1633' }}>
-        Controle de Ponto
-      </h1>
+        {!usuarioLogado ? (
+          <>
+            <div
+              style={{
+                width: '96px',
+                height: '96px',
+                borderRadius: '50%',
+                background: 'linear-gradient(180deg, #0b5cff 0%, #0046c7 100%)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '44px',
+                margin: '12px auto 22px',
+                boxShadow: '0 12px 28px rgba(0,70,199,0.28)',
+              }}
+            >
+              ◷
+            </div>
 
-      {!usuarioLogado ? (
-        <>
-          <h2>Login do sistema</h2>
+            <h1 style={{ fontSize: '42px', lineHeight: '1.05', color: '#071638', margin: '0 0 12px' }}>
+              Controle de Ponto
+            </h1>
 
-          <input style={inputStyle} placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <p style={{ color: '#586174', fontSize: '18px', marginBottom: '34px' }}>
+              Acesse sua conta para continuar
+            </p>
 
-          <input style={inputStyle} type="password" placeholder="Senha" value={senha} onChange={(e) => setSenha(e.target.value)} />
+            <h2 style={{ color: '#0757d8', fontSize: '26px', marginBottom: '22px' }}>
+              Login do sistema
+            </h2>
 
-<label
-  style={{
-    display: 'block',
-    marginBottom: '20px',
-    color: '#333',
-    fontSize: '16px',
-  }}
->
-  <input
-    type="checkbox"
-    checked={salvarLogin}
-    onChange={(e) =>
-      setSalvarLogin(e.target.checked)
-    }
-    style={{
-      marginRight: '8px',
-    }}
-  />
-  Salvar login neste aparelho
-</label>
-          <button style={buttonStyle} onClick={login}>
-            Entrar
-          </button>
-        </>
-      ) : (
-        <>
-          <h2>
-            Usuário logado: <strong>{usuarioLogado.nome}</strong>
-          </h2>
+            <input style={inputStyle} placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
 
-          {usuarioLogado.empresa_nome && <h3>Empresa: {usuarioLogado.empresa_nome}</h3>}
+            <input style={inputStyle} type="password" placeholder="Senha" value={senha} onChange={(e) => setSenha(e.target.value)} />
 
-          <button style={buttonStyle} onClick={sair}>
-            Sair
-          </button>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                margin: '8px 0 24px',
+                color: '#333',
+                fontSize: '16px',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={salvarLogin}
+                onChange={(e) => setSalvarLogin(e.target.checked)}
+              />
+              Salvar login neste aparelho
+            </label>
 
-          <hr />
+            <button style={buttonStyle} onClick={login}>
+              ↪ Entrar
+            </button>
 
-          {usuarioLogado.tipo === 'programador' && (
-            <>
-              <h1 style={{ color: '#1d4ed8', marginTop: '40px' }}>
-                Painel Programador / Multiempresas
-              </h1>
-
-              <h2>Criar Empresa</h2>
-
-              <input style={inputStyle} placeholder="Nome da empresa" value={novaEmpresa} onChange={(e) => setNovaEmpresa(e.target.value)} />
-
-              <input style={inputStyle} placeholder="E-mail master da empresa" value={emailMasterEmpresa} onChange={(e) => setEmailMasterEmpresa(e.target.value)} />
-
-              <input style={inputStyle} placeholder="Senha master da empresa" value={senhaMasterEmpresa} onChange={(e) => setSenhaMasterEmpresa(e.target.value)} />
-
-              <button style={buttonStyle} onClick={criarEmpresa}>
-                Criar Empresa
-              </button>
-
-              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
-                Empresas Cadastradas
-              </h1>
-
-              {empresas.map((empresa) => (
-                <div
-                  key={empresa.id}
-                  onClick={() => setEmpresaSelecionada(empresa.id)}
-                  style={{
-                    background: empresaSelecionada === empresa.id ? '#dbeafe' : '#f3f3f3',
-                    padding: '20px',
-                    borderRadius: '10px',
-                    marginBottom: '10px',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    border: empresaSelecionada === empresa.id ? '2px solid #1d4ed8' : '2px solid transparent',
-                  }}
-                >
-                  <strong>{empresa.nome}</strong>
-                  <br />
-                  ID: {empresa.id}
-                  <br />
-                  Master: {empresa.email_master}
-                  <br />
-                  Senha Master: {empresa.senha_master}
-                  <br />
-                  <br />
-                  <strong>Clique para ver funcionários, senhas e pontos</strong>
-                </div>
-              ))}
-
-              <hr />
-            </>
-          )}
-
-          {(usuarioLogado.tipo === 'master' || usuarioLogado.tipo === 'programador') && (
-            <>
-              {(usuarioLogado.tipo === 'master' || (usuarioLogado.tipo === 'programador' && empresaSelecionada)) && (
-                <>
-                  <h2>Cadastrar Funcionário</h2>
-
-                  <input style={inputStyle} placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
-
-                  <input style={inputStyle} placeholder="E-mail" value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} />
-
-                  <input style={inputStyle} placeholder="Senha" value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} />
-<label style={{ display: 'block', marginBottom: '20px' }}>
-  <input
-    type="checkbox"
-    checked={novoFazAlmoco}
-    onChange={(e) => setNovoFazAlmoco(e.target.checked)}
-  />
-  {' '}Intervalo para almoço
-</label>
-
-                  <button style={buttonStyle} onClick={cadastrarFuncionario}>
-                    Cadastrar
-                  </button>
-                </>
-              )}
-
-              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
-                Funcionários
-              </h1>
-
-              {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
-                <p>Clique em uma empresa para visualizar os funcionários.</p>
-              )}
-
-              {usuariosVisiveis()
-                .filter((u) => u.tipo === 'funcionario')
-                .map((u) => (
+            <p style={{ color: '#1d5fbf', fontSize: '14px', marginTop: '80px' }}>
+              Seguro • Rápido • Confiável
+            </p>
+          </>
+        ) : (
+          <>
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #0757d8 0%, #003b9f 100%)',
+                color: '#fff',
+                padding: '28px',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                   <div
-                    key={u.id}
                     style={{
-                      background: '#f3f3f3',
-                      padding: '20px',
-                      borderRadius: '10px',
-                      marginBottom: '10px',
+                      width: '64px',
+                      height: '64px',
+                      borderRadius: '50%',
+                      background: '#dbeafe',
+                      color: '#0757d8',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '32px',
+                      fontWeight: 'bold',
                     }}
                   >
-                    <strong>{u.nome}</strong>
-                    <br />
-                    Empresa ID: {u.empresa_id}
-                    <br />
-                    E-mail: {u.email}
-                    <br />
-                    Senha: {u.senha}
-                    <br />
-                    Status: {u.ativo === false ? 'Bloqueado' : 'Ativo'}
-                    <br />
-                    <br />
+                    {usuarioLogado.nome?.charAt(0) || 'U'}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '15px', opacity: 0.9 }}>Usuário logado:</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{usuarioLogado.nome}</div>
+                    {usuarioLogado.empresa_nome && <div style={{ fontSize: '15px', opacity: 0.9 }}>Empresa: {usuarioLogado.empresa_nome}</div>}
+                  </div>
+                </div>
 
-                    <button style={{ ...buttonStyle, backgroundColor: '#dc2626' }} onClick={() => excluirFuncionario(u.id)}>
-                      Excluir
+                <button
+                  style={{
+                    ...buttonStyle,
+                    width: '170px',
+                    background: '#062b7a',
+                    boxShadow: 'none',
+                    marginBottom: 0,
+                  }}
+                  onClick={sair}
+                >
+                  ⇱ Sair
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: '24px' }}>
+              {usuarioLogado.tipo === 'programador' && (
+                <>
+                  <div style={sectionStyle}>
+                    <p style={{ color: '#0757d8', fontWeight: 'bold', margin: '0 0 8px' }}>▦ Painel</p>
+                    <h1 style={{ color: '#071638', fontSize: '38px', lineHeight: '1.05', margin: '0 0 10px' }}>
+                      Programador / Multiempresas
+                    </h1>
+                    <p style={{ color: '#586174', fontSize: '17px', marginTop: 0 }}>
+                      Gerencie suas empresas de forma simples e eficiente.
+                    </p>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px', marginTop: '22px' }}>
+                      <div style={cardStyle}><strong style={{ fontSize: '26px' }}>{empresas.length}</strong><br />Empresas</div>
+                      <div style={cardStyle}><strong style={{ fontSize: '26px' }}>{usuarios.filter((u) => u.tipo === 'funcionario').length}</strong><br />Funcionários</div>
+                      <div style={cardStyle}><strong style={{ fontSize: '26px' }}>{pontos.filter((p) => p.data_iso === hojeISO()).length}</strong><br />Registros hoje</div>
+                    </div>
+                  </div>
+
+                  <div style={sectionStyle}>
+                    <h2 style={{ color: '#0757d8', marginTop: 0 }}>▥ Criar Empresa</h2>
+                    <p style={{ color: '#586174' }}>Preencha os dados abaixo para cadastrar uma nova empresa.</p>
+
+                    <input style={inputStyle} placeholder="Nome da empresa" value={novaEmpresa} onChange={(e) => setNovaEmpresa(e.target.value)} />
+                    <input style={inputStyle} placeholder="E-mail master da empresa" value={emailMasterEmpresa} onChange={(e) => setEmailMasterEmpresa(e.target.value)} />
+                    <input style={inputStyle} placeholder="Senha master da empresa" value={senhaMasterEmpresa} onChange={(e) => setSenhaMasterEmpresa(e.target.value)} />
+
+                    <button style={buttonStyle} onClick={criarEmpresa}>
+                      ＋ Criar Empresa
                     </button>
-<br />
+                  </div>
 
-<button
-  style={{
-    ...buttonStyle,
-    backgroundColor: '#2563eb',
-  }}
-  onClick={() => abrirEdicaoFuncionario(u)}
->
-  Editar
-</button>
-{funcionarioEditando && funcionarioEditando.id === u.id && (
-  <div
-    style={{
-      background: '#dbeafe',
-      padding: '20px',
-      borderRadius: '10px',
-      marginTop: '20px',
-      marginBottom: '20px',
-    }}
-  >
-    <h2>Editar Funcionário</h2>
-
-    <input
-      style={inputStyle}
-      placeholder="Nome"
-      value={editNome}
-      onChange={(e) => setEditNome(e.target.value)}
-    />
-
-    <input
-      style={inputStyle}
-      placeholder="E-mail"
-      value={editEmail}
-      onChange={(e) => setEditEmail(e.target.value)}
-    />
-
-    <input
-      style={inputStyle}
-      placeholder="Senha"
-      value={editSenha}
-      onChange={(e) => setEditSenha(e.target.value)}
-    />
-<label
-style={{
-display: 'block',
-marginTop: '10px',
-marginBottom: '20px'
-}}
->
-<input
-type="checkbox"
-checked={editFazAlmoco}
-onChange={(e) => setEditFazAlmoco(e.target.checked)}
-/>
-{' '}Intervalo para almoço
-</label>
-
-    <button
-      style={buttonStyle}
-      onClick={salvarEdicaoFuncionario}
-    >
-      Salvar Alterações
-    </button>
-
-    <button
-      style={{
-        ...buttonStyle,
-        backgroundColor: '#6b7280',
-        marginLeft: '10px',
-      }}
-      onClick={() => setFuncionarioEditando(null)}
-    >
-      Cancelar
-    </button>
- </div>
-)}
-
-</div>
-))}
-
-<hr />
-              <h1 style={{ color: '#1d4ed8', marginTop: '50px' }}>
-                Relatório
-              </h1>
-
-              <input type="date" style={inputStyle} value={dataRelatorio} onChange={(e) => setDataRelatorio(e.target.value)} />
-
-              <button style={{ ...buttonStyle, backgroundColor: '#16a34a' }} onClick={exportarRelatorioPDF}>
-                Exportar PDF
-              </button>
-
-              {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
-                <p>Clique em uma empresa para visualizar o relatório.</p>
-              )}
-
-              {empresasVisiveis()
-                .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
-                .map((empresa) => (
-                  <div key={empresa.id}>
-                    {usuarioLogado.tipo === 'programador' && (
-                      <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
-                    )}
-
-                    {gerarRelatorio(empresa.id).map((r, index) => (
+                  <div style={sectionStyle}>
+                    <h2 style={{ color: '#071638', marginTop: 0 }}>Empresas Cadastradas</h2>
+                    {empresas.map((empresa) => (
                       <div
-                        key={`${empresa.id}-${index}`}
+                        key={empresa.id}
+                        onClick={() => setEmpresaSelecionada(empresa.id)}
                         style={{
-                          background: '#f3f3f3',
-                          padding: '20px',
-                          borderRadius: '10px',
-                          marginBottom: '10px',
-                          textAlign: 'left',
+                          ...cardStyle,
+                          background: empresaSelecionada === empresa.id ? '#dbeafe' : '#f8fbff',
+                          border: empresaSelecionada === empresa.id ? '2px solid #0757d8' : '1px solid #e6edf7',
+                          cursor: 'pointer',
                         }}
                       >
-                        <strong>{r.nome}</strong>
+                        <strong>{empresa.nome}</strong>
                         <br />
-                        Data: {r.data}
+                        ID: {empresa.id}
                         <br />
-                        Entrada: {r.entrada || '-'}
-<br />
-Saída almoço: {r.saidaAlmoco || '-'}
-<br />
-Volta almoço: {r.voltaAlmoco || '-'}
-<br />
-Saída casa: {r.saida || '-'}
-<br />
-Status: {r.status}
+                        Master: {empresa.email_master}
+                        <br />
+                        Senha Master: {empresa.senha_master}
+                        <br />
+                        <br />
+                        <strong>Clique para ver funcionários, senhas e pontos</strong>
                       </div>
                     ))}
                   </div>
-                ))}
-            </>
-          )}
+                </>
+              )}
 
-          {usuarioLogado.tipo === 'funcionario' && (
-            <>
-              <h1 style={{ color: '#001f6b', marginTop: '40px' }}>
-                Registrar Ponto
-              </h1>
+              {(usuarioLogado.tipo === 'master' || usuarioLogado.tipo === 'programador') && (
+                <>
+                  {(usuarioLogado.tipo === 'master' || (usuarioLogado.tipo === 'programador' && empresaSelecionada)) && (
+                    <div style={sectionStyle}>
+                      <h2 style={{ color: '#0757d8', marginTop: 0 }}>Cadastrar Funcionário</h2>
 
-              <button style={buttonStyle} onClick={registrarPonto}>
-                Registrar Ponto
-              </button>
-            </>
-          )}
-        </>
-      )}
+                      <input style={inputStyle} placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
+                      <input style={inputStyle} placeholder="E-mail" value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} />
+                      <input style={inputStyle} placeholder="Senha" value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} />
 
-      <br />
-      <br />
-<p style={{ color: '#666', letterSpacing: '2px', fontSize: '11px' }}>
-  DEVELOPED BY DINHO OLIVEIRA
-</p>
+                      <label style={{ display: 'block', marginBottom: '20px' }}>
+                        <input type="checkbox" checked={novoFazAlmoco} onChange={(e) => setNovoFazAlmoco(e.target.checked)} />
+                        {' '}Intervalo para almoço
+                      </label>
+
+                      <button style={buttonStyle} onClick={cadastrarFuncionario}>
+                        Cadastrar
+                      </button>
+                    </div>
+                  )}
+
+                  <div style={sectionStyle}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        flexWrap: 'wrap',
+                        marginBottom: '14px',
+                      }}
+                    >
+                      <div>
+                        <h2 style={{ color: '#071638', margin: 0 }}>Funcionários</h2>
+                        <p style={{ color: '#586174', margin: '6px 0 0' }}>
+                          Clique na barra abaixo para abrir, pesquisar e administrar os funcionários.
+                        </p>
+                      </div>
+
+                      <div
+                        style={{
+                          background: '#dbeafe',
+                          color: '#0757d8',
+                          padding: '10px 14px',
+                          borderRadius: '999px',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        {usuariosVisiveis().filter((u) => u.tipo === 'funcionario').length} cadastrados
+                      </div>
+                    </div>
+
+                    {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                      <p>Clique em uma empresa para visualizar os funcionários.</p>
+                    )}
+
+                    {(usuarioLogado.tipo !== 'programador' || empresaSelecionada) && (
+                      <>
+                        <button
+                          style={{
+                            ...buttonStyle,
+                            background: mostrarFuncionarios
+                              ? '#6b7280'
+                              : 'linear-gradient(180deg, #0b5cff 0%, #0046c7 100%)',
+                          }}
+                          onClick={() => setMostrarFuncionarios(!mostrarFuncionarios)}
+                        >
+                          {mostrarFuncionarios ? '▲ Ocultar Funcionários' : '▼ Ver / Administrar Funcionários'}
+                        </button>
+
+                        {mostrarFuncionarios && (
+                          <>
+                            <input
+                              style={inputStyle}
+                              placeholder="Pesquisar funcionário pelo nome, e-mail ou senha"
+                              value={buscaFuncionario}
+                              onChange={(e) => setBuscaFuncionario(e.target.value)}
+                            />
+
+                            <div
+                              style={{
+                                maxHeight: '520px',
+                                overflowY: 'auto',
+                                paddingRight: '6px',
+                                borderRadius: '18px',
+                              }}
+                            >
+                              {usuariosVisiveis()
+                                .filter((u) => u.tipo === 'funcionario')
+                                .filter((u) => {
+                                  const busca = buscaFuncionario.toLowerCase().trim()
+
+                                  if (!busca) return true
+
+                                  return (
+                                    u.nome?.toLowerCase().includes(busca) ||
+                                    u.email?.toLowerCase().includes(busca) ||
+                                    u.senha?.toLowerCase().includes(busca)
+                                  )
+                                })
+                                .map((u) => (
+                                  <div key={u.id} style={cardStyle}>
+                                    <strong>{u.nome}</strong>
+                                    <br />
+                                    Empresa ID: {u.empresa_id}
+                                    <br />
+                                    E-mail: {u.email}
+                                    <br />
+                                    Senha: {u.senha}
+                                    <br />
+                                    Status: {u.ativo === false ? 'Bloqueado' : 'Ativo'}
+                                    <br />
+                                    <br />
+
+                                    <button style={{ ...buttonStyle, background: '#dc2626' }} onClick={() => excluirFuncionario(u.id)}>
+                                      Excluir
+                                    </button>
+
+                                    <button style={{ ...buttonStyle, background: '#2563eb' }} onClick={() => abrirEdicaoFuncionario(u)}>
+                                      Editar
+                                    </button>
+
+                                    {funcionarioEditando && funcionarioEditando.id === u.id && (
+                                      <div style={{ background: '#dbeafe', padding: '20px', borderRadius: '16px', marginTop: '20px' }}>
+                                        <h2>Editar Funcionário</h2>
+
+                                        <input style={inputStyle} placeholder="Nome" value={editNome} onChange={(e) => setEditNome(e.target.value)} />
+                                        <input style={inputStyle} placeholder="E-mail" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+                                        <input style={inputStyle} placeholder="Senha" value={editSenha} onChange={(e) => setEditSenha(e.target.value)} />
+
+                                        <label style={{ display: 'block', marginTop: '10px', marginBottom: '20px' }}>
+                                          <input type="checkbox" checked={editFazAlmoco} onChange={(e) => setEditFazAlmoco(e.target.checked)} />
+                                          {' '}Intervalo para almoço
+                                        </label>
+
+                                        <button style={buttonStyle} onClick={salvarEdicaoFuncionario}>
+                                          Salvar Alterações
+                                        </button>
+
+                                        <button style={{ ...buttonStyle, background: '#6b7280' }} onClick={() => setFuncionarioEditando(null)}>
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+
+                              {usuariosVisiveis()
+                                .filter((u) => u.tipo === 'funcionario')
+                                .filter((u) => {
+                                  const busca = buscaFuncionario.toLowerCase().trim()
+
+                                  if (!busca) return true
+
+                                  return (
+                                    u.nome?.toLowerCase().includes(busca) ||
+                                    u.email?.toLowerCase().includes(busca) ||
+                                    u.senha?.toLowerCase().includes(busca)
+                                  )
+                                }).length === 0 && (
+                                <div style={cardStyle}>
+                                  Nenhum funcionário encontrado.
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div style={sectionStyle}>
+                    <h2 style={{ color: '#071638', marginTop: 0 }}>Relatório</h2>
+
+                    <input type="date" style={inputStyle} value={dataRelatorio} onChange={(e) => setDataRelatorio(e.target.value)} />
+
+                    <button style={{ ...buttonStyle, background: '#16a34a' }} onClick={exportarRelatorioPDF}>
+                      Exportar PDF
+                    </button>
+
+                    {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                      <p>Clique em uma empresa para visualizar o relatório.</p>
+                    )}
+
+                    {empresasVisiveis()
+                      .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
+                      .map((empresa) => (
+                        <div key={empresa.id}>
+                          {usuarioLogado.tipo === 'programador' && (
+                            <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
+                          )}
+
+                          {gerarRelatorio(empresa.id).map((r, index) => (
+                            <div key={`${empresa.id}-${index}`} style={cardStyle}>
+                              <strong>{r.nome}</strong>
+                              <br />
+                              Data: {r.data}
+                              <br />
+                              Entrada: {r.entrada || '-'}
+                              <br />
+                              Saída almoço: {r.saidaAlmoco || '-'}
+                              <br />
+                              Volta almoço: {r.voltaAlmoco || '-'}
+                              <br />
+                              Saída casa: {r.saida || '-'}
+                              <br />
+                              Status: {r.status}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                  </div>
+
+                  <div style={sectionStyle}>
+                    <h2 style={{ color: '#071638', marginTop: 0 }}>Relatório Mensal por Funcionário</h2>
+                    <p style={{ color: '#586174', marginTop: 0 }}>
+                      Consulte todos os registros do mês e filtre por funcionário ou horário.
+                    </p>
+
+                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                      Mês
+                    </label>
+                    <input
+                      type="month"
+                      style={inputStyle}
+                      value={mesRelatorioMensal}
+                      onChange={(e) => setMesRelatorioMensal(e.target.value)}
+                    />
+
+                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                      Funcionário
+                    </label>
+                    <select
+                      style={inputStyle}
+                      value={funcionarioRelatorioMensal}
+                      onChange={(e) => setFuncionarioRelatorioMensal(e.target.value)}
+                    >
+                      <option value="todos">Todos os funcionários</option>
+                      {usuariosVisiveis()
+                        .filter((u) => u.tipo === 'funcionario')
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.nome}
+                          </option>
+                        ))}
+                    </select>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                          Hora inicial
+                        </label>
+                        <input
+                          type="time"
+                          style={inputStyle}
+                          value={horaInicioRelatorioMensal}
+                          onChange={(e) => setHoraInicioRelatorioMensal(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                          Hora final
+                        </label>
+                        <input
+                          type="time"
+                          style={inputStyle}
+                          value={horaFimRelatorioMensal}
+                          onChange={(e) => setHoraFimRelatorioMensal(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                      <p>Clique em uma empresa para visualizar o relatório mensal.</p>
+                    )}
+
+                    {empresasVisiveis()
+                      .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
+                      .map((empresa) => {
+                        const registrosMensais = gerarRelatorioMensal(empresa.id)
+
+                        return (
+                          <div key={`mensal-${empresa.id}`}>
+                            {usuarioLogado.tipo === 'programador' && (
+                              <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
+                            )}
+
+                            {registrosMensais.length === 0 ? (
+                              <div style={cardStyle}>
+                                Nenhum registro encontrado para os filtros selecionados.
+                              </div>
+                            ) : (
+                              registrosMensais.map((r) => (
+                                <div key={`mensal-${empresa.id}-${r.id}`} style={cardStyle}>
+                                  <strong>{r.nome}</strong>
+                                  <br />
+                                  Data: {r.data}
+                                  <br />
+                                  Horário: {r.hora || '-'}
+                                  <br />
+                                  Tipo: {r.tipo}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )
+                      })}
+                  </div>
+                </>
+              )}
+
+              {usuarioLogado.tipo === 'funcionario' && (
+                <div style={sectionStyle}>
+                  <h1 style={{ color: '#071638', marginTop: 0 }}>Registrar Ponto</h1>
+                  <p style={{ color: '#586174' }}>Toque no botão abaixo para registrar seu horário.</p>
+
+                  <button style={{ ...buttonStyle, fontSize: '20px', padding: '22px' }} onClick={registrarPonto}>
+                    Registrar Ponto
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <p style={{ color: '#666', letterSpacing: '2px', fontSize: '11px', paddingBottom: usuarioLogado ? '20px' : 0 }}>
+          DEVELOPED BY DINHO OLIVEIRA
+        </p>
+      </div>
     </div>
   )
 }
