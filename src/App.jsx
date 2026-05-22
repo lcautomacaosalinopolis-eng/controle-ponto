@@ -13,6 +13,11 @@ function App() {
   const [novaEmpresa, setNovaEmpresa] = useState('')
   const [emailMasterEmpresa, setEmailMasterEmpresa] = useState('')
   const [senhaMasterEmpresa, setSenhaMasterEmpresa] = useState('')
+  const [empresaEditandoMaster, setEmpresaEditandoMaster] = useState(null)
+  const [editEmpresaNome, setEditEmpresaNome] = useState('')
+  const [editEmpresaEmailMaster, setEditEmpresaEmailMaster] = useState('')
+  const [editEmpresaSenhaMaster, setEditEmpresaSenhaMaster] = useState('')
+  const [editEmpresaAtiva, setEditEmpresaAtiva] = useState(true)
   const [registrandoPonto, setRegistrandoPonto] = useState(false)
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
@@ -31,6 +36,12 @@ const [mostrarFuncionarios, setMostrarFuncionarios] = useState(false)
 const [buscaFuncionario, setBuscaFuncionario] = useState('')
 const [mostrarHistoricoDia, setMostrarHistoricoDia] = useState(false)
 const [mostrarRelatorioMensal, setMostrarRelatorioMensal] = useState(false)
+const [notificacoesPontoAtivas, setNotificacoesPontoAtivas] = useState(false)
+const [auditoria, setAuditoria] = useState([])
+const [mostrarAuditoria, setMostrarAuditoria] = useState(false)
+const [buscaAuditoria, setBuscaAuditoria] = useState('')
+const [dataInicioAuditoria, setDataInicioAuditoria] = useState('')
+const [dataFimAuditoria, setDataFimAuditoria] = useState('')
   const [dataRelatorio, setDataRelatorio] = useState(formatarDataISO(new Date()))
   const [mesRelatorioMensal, setMesRelatorioMensal] = useState(formatarMesISO(new Date()))
   const [funcionarioRelatorioMensal, setFuncionarioRelatorioMensal] = useState('todos')
@@ -52,16 +63,30 @@ const [mostrarRelatorioMensal, setMostrarRelatorioMensal] = useState(false)
     if (data) setPontos(data)
   }
 
+  async function carregarAuditoria() {
+    const { data, error } = await supabase
+      .from('auditoria')
+      .select('*')
+      .order('id', { ascending: false })
+      .limit(300)
+
+    if (!error && data) {
+      setAuditoria(data)
+    }
+  }
+
   useEffect(() => {
     carregarEmpresas()
     carregarUsuarios()
     carregarPontos()
+    carregarAuditoria()
 
     const canal = supabase
       .channel('tempo-real')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pontos' }, async () => carregarPontos())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, async () => carregarUsuarios())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'empresas' }, async () => carregarEmpresas())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'auditoria' }, async () => carregarAuditoria())
       .subscribe()
 
 return () => {
@@ -85,9 +110,189 @@ useEffect(() => {
   }
 
 }, [])
+
+useEffect(() => {
+  if (!usuarioLogado || usuarioLogado.tipo !== 'master') {
+    setNotificacoesPontoAtivas(false)
+    return
+  }
+
+  const chave = `notificacaoPontoMaster_${usuarioLogado.empresa_id}`
+  setNotificacoesPontoAtivas(localStorage.getItem(chave) === 'true')
+}, [usuarioLogado])
+
+useEffect(() => {
+  if (!usuarioLogado || usuarioLogado.tipo !== 'master' || !notificacoesPontoAtivas) return
+
+  const canalNotificacoes = supabase
+    .channel(`notificacoes-ponto-master-${usuarioLogado.empresa_id}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'pontos' },
+      (payload) => {
+        const pontoNovo = payload.new
+
+        if (!pontoNovo || pontoNovo.empresa_id !== usuarioLogado.empresa_id) return
+
+        mostrarNotificacaoPonto(pontoNovo)
+      }
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(canalNotificacoes)
+  }
+}, [usuarioLogado, notificacoesPontoAtivas])
+
   function mostrarMensagem(texto) {
     setMensagem(texto)
     setTimeout(() => setMensagem(''), 4000)
+  }
+
+  async function registrarAuditoria(acao, detalhes = '', usuarioReferencia = usuarioLogado) {
+    try {
+      await supabase.from('auditoria').insert([
+        {
+          usuario: usuarioReferencia?.nome || usuarioReferencia?.email || email || 'Sistema',
+          tipo_usuario: usuarioReferencia?.tipo || 'sistema',
+          empresa_id: usuarioReferencia?.empresa_id || empresaSelecionada || null,
+          acao,
+          detalhes,
+        },
+      ])
+
+      await carregarAuditoria()
+    } catch (erro) {
+      // A auditoria nunca deve travar o sistema principal.
+    }
+  }
+
+  function auditoriaFiltrada() {
+    return auditoria.filter((item) => {
+      const busca = buscaAuditoria.toLowerCase().trim()
+      const texto = [
+        item.usuario,
+        item.tipo_usuario,
+        item.acao,
+        item.detalhes,
+        item.empresa_id,
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      if (busca && !texto.includes(busca)) return false
+
+      const dataItem = item.criado_em ? formatarDataISO(item.criado_em) : ''
+
+      if (dataInicioAuditoria && dataItem < dataInicioAuditoria) return false
+      if (dataFimAuditoria && dataItem > dataFimAuditoria) return false
+
+      return true
+    })
+  }
+
+  function exportarAuditoriaPDF() {
+    const registros = auditoriaFiltrada()
+
+    const janela = window.open('', '', 'width=1000,height=700')
+
+    let html = `
+      <html>
+        <head>
+          <title>Auditoria do Sistema</title>
+          <style>
+            body{font-family:Arial;padding:30px;}
+            h1,h2{text-align:center;color:#001f6b;}
+            table{width:100%;border-collapse:collapse;margin-top:25px;font-size:12px;}
+            th,td{border:1px solid #999;padding:8px;text-align:left;}
+            th{background:#001f6b;color:white;}
+            .rodape{margin-top:40px;text-align:center;font-size:12px;letter-spacing:2px;color:#666;}
+          </style>
+        </head>
+        <body>
+          <h1>Auditoria do Sistema</h1>
+          <h2>Controle de Ponto</h2>
+          <table>
+            <tr>
+              <th>Data/Hora</th>
+              <th>Usuário</th>
+              <th>Perfil</th>
+              <th>Empresa</th>
+              <th>Ação</th>
+              <th>Detalhes</th>
+            </tr>
+    `
+
+    registros.forEach((item) => {
+      html += `
+        <tr>
+          <td>${item.criado_em ? new Date(item.criado_em).toLocaleString('pt-BR') : '-'}</td>
+          <td>${item.usuario || '-'}</td>
+          <td>${item.tipo_usuario || '-'}</td>
+          <td>${item.empresa_id || '-'}</td>
+          <td>${item.acao || '-'}</td>
+          <td>${item.detalhes || '-'}</td>
+        </tr>
+      `
+    })
+
+    html += `
+          </table>
+          <div class="rodape">DEVELOPED BY DINHO OLIVEIRA</div>
+        </body>
+      </html>
+    `
+
+    janela.document.write(html)
+    janela.document.close()
+    janela.focus()
+
+    setTimeout(() => {
+      janela.print()
+    }, 500)
+  }
+
+  async function alternarNotificacoesPonto() {
+    if (!usuarioLogado || usuarioLogado.tipo !== 'master') return
+
+    if (!('Notification' in window)) {
+      mostrarMensagem('Este navegador não suporta notificações.')
+      return
+    }
+
+    if (!notificacoesPontoAtivas && Notification.permission !== 'granted') {
+      const permissao = await Notification.requestPermission()
+
+      if (permissao !== 'granted') {
+        mostrarMensagem('Permissão de notificação não autorizada no aparelho.')
+        return
+      }
+    }
+
+    const novoValor = !notificacoesPontoAtivas
+    const chave = `notificacaoPontoMaster_${usuarioLogado.empresa_id}`
+
+    localStorage.setItem(chave, String(novoValor))
+    setNotificacoesPontoAtivas(novoValor)
+
+    mostrarMensagem(
+      novoValor
+        ? 'Notificações de ponto ativadas neste aparelho.'
+        : 'Notificações de ponto desativadas neste aparelho.'
+    )
+  }
+
+  function mostrarNotificacaoPonto(ponto) {
+    const hora = formatarHoraServidor(ponto.registrado_em, ponto.hora)
+    const titulo = 'Novo ponto registrado'
+    const corpo = `${ponto.nome || 'Funcionário'} - ${ponto.tipo || 'Ponto'} às ${hora}`
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(titulo, {
+        body: corpo,
+        icon: '/vite.svg',
+      })
+    }
   }
 
   function formatarDataISO(dataHora) {
@@ -215,6 +420,17 @@ if (salvarLogin) {
   )
 
 }
+      await registrarAuditoria(
+        'LOGIN_PROGRAMADOR',
+        'Login realizado no painel do programador.',
+        {
+          nome: 'PROGRAMADOR',
+          tipo: 'programador',
+          email: 'programador@lc.com',
+          empresa_id: null,
+        }
+      )
+
       setEmail('')
       setSenha('')
       mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
@@ -236,6 +452,17 @@ if (salvarLogin) {
         empresa_id: empresaMaster.id,
         empresa_nome: empresaMaster.nome,
       })
+      await registrarAuditoria(
+        'LOGIN_MASTER',
+        `Login master realizado na empresa ${empresaMaster.nome}.`,
+        {
+          nome: 'MASTER',
+          tipo: 'master',
+          email,
+          empresa_id: empresaMaster.id,
+        }
+      )
+
       setEmpresaSelecionada(empresaMaster.id)
       setEmail('')
       setSenha('')
@@ -256,6 +483,12 @@ if (salvarLogin) {
       mostrarMensagem('Usuário bloqueado.')
       return
     }
+
+    await registrarAuditoria(
+      'LOGIN_FUNCIONARIO',
+      `Funcionário ${usuario.nome} acessou o sistema.`,
+      usuario
+    )
 
     setUsuarioLogado(usuario)
     setEmpresaSelecionada(usuario.empresa_id)
@@ -312,6 +545,7 @@ if (salvarLogin) {
     setEmailMasterEmpresa('')
     setSenhaMasterEmpresa('')
     await carregarEmpresas()
+    await registrarAuditoria('CRIAR_EMPRESA', `Empresa criada: ${novaEmpresa}.`)
     mostrarMensagem('Empresa criada com sucesso!')
   }
 
@@ -350,16 +584,30 @@ if (salvarLogin) {
     setNovaSenha('')
 setNovoFazAlmoco(true)
     await carregarUsuarios()
+    await registrarAuditoria('CADASTRAR_FUNCIONARIO', `Funcionário cadastrado: ${novoNome}.`)
     mostrarMensagem('Funcionário cadastrado com sucesso!')
   }
 
   async function excluirFuncionario(id) {
-    const confirmar = confirm('Deseja realmente excluir este funcionário?')
+    const funcionario = usuarios.find((u) => u.id === id)
+    const confirmar = confirm('Deseja realmente bloquear este funcionário? O histórico de pontos será mantido.')
     if (!confirmar) return
 
-    await supabase.from('usuarios').delete().eq('id', id)
+    await supabase.from('usuarios').update({ ativo: false }).eq('id', id)
     await carregarUsuarios()
-    mostrarMensagem('Funcionário excluído.')
+    await registrarAuditoria('BLOQUEAR_FUNCIONARIO', `Funcionário bloqueado: ${funcionario?.nome || id}.`)
+    mostrarMensagem('Funcionário bloqueado.')
+  }
+
+  async function reativarFuncionario(id) {
+    const funcionario = usuarios.find((u) => u.id === id)
+    const confirmar = confirm('Deseja reativar este funcionário?')
+    if (!confirmar) return
+
+    await supabase.from('usuarios').update({ ativo: true }).eq('id', id)
+    await carregarUsuarios()
+    await registrarAuditoria('REATIVAR_FUNCIONARIO', `Funcionário reativado: ${funcionario?.nome || id}.`)
+    mostrarMensagem('Funcionário reativado.')
   }
 
  async function registrarPonto() {
@@ -455,6 +703,7 @@ setNovoFazAlmoco(true)
     return
   }
     await carregarPontos()
+    await registrarAuditoria('REGISTRAR_PONTO', `${usuarioLogado.nome} registrou ${tipo} às ${horaOficialBR}.`)
     setRegistrandoPonto(false)
     mostrarMensagem(`✅ ${tipo} registrada com horário oficial!`)
   }
@@ -863,6 +1112,78 @@ function historicoFuncionarioHoje() {
     .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''))
 }
 
+
+function abrirEdicaoMasterEmpresa(empresa) {
+
+  setEmpresaEditandoMaster(empresa)
+
+  setEditEmpresaNome(empresa.nome || '')
+
+  setEditEmpresaEmailMaster(empresa.email_master || '')
+
+  setEditEmpresaSenhaMaster(empresa.senha_master || '')
+
+  setEditEmpresaAtiva(empresa.ativo !== false)
+
+  mostrarMensagem(
+    'Editando master da empresa: ' + empresa.nome
+  )
+
+}
+
+function cancelarEdicaoMasterEmpresa() {
+
+  setEmpresaEditandoMaster(null)
+
+  setEditEmpresaNome('')
+
+  setEditEmpresaEmailMaster('')
+
+  setEditEmpresaSenhaMaster('')
+
+  setEditEmpresaAtiva(true)
+
+}
+
+async function salvarEdicaoMasterEmpresa() {
+
+  if (!empresaEditandoMaster) {
+    mostrarMensagem('Nenhuma empresa selecionada para edição.')
+    return
+  }
+
+  if (!editEmpresaNome || !editEmpresaEmailMaster || !editEmpresaSenhaMaster) {
+    mostrarMensagem('Preencha nome, login master e senha master.')
+    return
+  }
+
+  const { error } = await supabase
+    .from('empresas')
+    .update({
+      nome: editEmpresaNome,
+      email_master: editEmpresaEmailMaster.toLowerCase(),
+      senha_master: editEmpresaSenhaMaster,
+      ativo: editEmpresaAtiva,
+    })
+    .eq('id', empresaEditandoMaster.id)
+
+  if (error) {
+    mostrarMensagem('Erro ao alterar dados do master da empresa.')
+    return
+  }
+
+  await carregarEmpresas()
+  await registrarAuditoria('EDITAR_MASTER_EMPRESA', `Dados master alterados da empresa ${editEmpresaNome}.`)
+
+  if (empresaSelecionada === empresaEditandoMaster.id && usuarioLogado?.tipo === 'programador') {
+    setEmpresaSelecionada(empresaEditandoMaster.id)
+  }
+
+  cancelarEdicaoMasterEmpresa()
+
+  mostrarMensagem('Dados do master da empresa alterados com sucesso.')
+}
+
 function abrirEdicaoFuncionario(usuario) {
 
   setFuncionarioEditando(usuario)
@@ -929,6 +1250,7 @@ faz_almoco: editFazAlmoco,
   setEditSenha('')
 
   await carregarUsuarios()
+  await registrarAuditoria('EDITAR_FUNCIONARIO', `Funcionário alterado: ${editNome}.`)
 
   mostrarMensagem(
     'Funcionário alterado com sucesso.'
@@ -1113,18 +1435,212 @@ faz_almoco: editFazAlmoco,
                           cursor: 'pointer',
                         }}
                       >
-                        <strong>{empresa.nome}</strong>
-                        <br />
-                        ID: {empresa.id}
-                        <br />
-                        Master: {empresa.email_master}
-                        <br />
-                        Senha Master: {empresa.senha_master}
-                        <br />
-                        <br />
-                        <strong>Clique para ver funcionários, senhas e pontos</strong>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                          <div>
+                            <strong>{empresa.nome}</strong>
+                            <br />
+                            ID: {empresa.id}
+                            <br />
+                            Login Master: {empresa.email_master}
+                            <br />
+                            Senha Master: {empresa.senha_master}
+                            <br />
+                            Status: {empresa.ativo === false ? 'Inativa' : 'Ativa'}
+                            <br />
+                            <br />
+                            <strong>Clique para ver funcionários, senhas e pontos</strong>
+                          </div>
+
+                          <button
+                            style={{
+                              ...buttonStyle,
+                              width: '220px',
+                              background: '#0f766e',
+                              marginBottom: 0,
+                              boxShadow: '0 10px 24px rgba(15, 118, 110, 0.22)',
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              abrirEdicaoMasterEmpresa(empresa)
+                            }}
+                          >
+                            Editar Master
+                          </button>
+                        </div>
+
+                        {empresaEditandoMaster && empresaEditandoMaster.id === empresa.id && (
+                          <div
+                            style={{
+                              background: '#eaf2ff',
+                              padding: '20px',
+                              borderRadius: '18px',
+                              marginTop: '18px',
+                              border: '1px solid #bfdbfe',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <h2 style={{ color: '#071638', marginTop: 0 }}>
+                              Alterar Master da Empresa
+                            </h2>
+
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                              Nome da empresa
+                            </label>
+                            <input
+                              style={inputStyle}
+                              placeholder="Nome da empresa"
+                              value={editEmpresaNome}
+                              onChange={(e) => setEditEmpresaNome(e.target.value)}
+                            />
+
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                              Login / e-mail master
+                            </label>
+                            <input
+                              style={inputStyle}
+                              placeholder="Login ou e-mail master"
+                              value={editEmpresaEmailMaster}
+                              onChange={(e) => setEditEmpresaEmailMaster(e.target.value)}
+                            />
+
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                              Senha master
+                            </label>
+                            <input
+                              style={inputStyle}
+                              placeholder="Senha master"
+                              value={editEmpresaSenhaMaster}
+                              onChange={(e) => setEditEmpresaSenhaMaster(e.target.value)}
+                            />
+
+                            <label style={{ display: 'block', marginBottom: '20px' }}>
+                              <input
+                                type="checkbox"
+                                checked={editEmpresaAtiva}
+                                onChange={(e) => setEditEmpresaAtiva(e.target.checked)}
+                              />
+                              {' '}Empresa ativa
+                            </label>
+
+                            <button style={{ ...buttonStyle, background: '#16a34a' }} onClick={salvarEdicaoMasterEmpresa}>
+                              Salvar Alterações do Master
+                            </button>
+
+                            <button style={{ ...buttonStyle, background: '#6b7280' }} onClick={cancelarEdicaoMasterEmpresa}>
+                              Cancelar
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
+                  </div>
+
+                  <div style={sectionStyle}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        flexWrap: 'wrap',
+                        marginBottom: '14px',
+                      }}
+                    >
+                      <div>
+                        <h2 style={{ color: '#071638', margin: 0 }}>Auditoria do Sistema</h2>
+                        <p style={{ color: '#586174', margin: '6px 0 0' }}>
+                          Área exclusiva do programador para acompanhar ações importantes do sistema.
+                        </p>
+                      </div>
+
+                      <span style={chipStyle}>
+                        {auditoriaFiltrada().length} registros
+                      </span>
+                    </div>
+
+                    <button
+                      style={{
+                        ...buttonStyle,
+                        background: mostrarAuditoria
+                          ? '#6b7280'
+                          : 'linear-gradient(180deg, #0b5cff 0%, #0046c7 100%)',
+                      }}
+                      onClick={() => setMostrarAuditoria(!mostrarAuditoria)}
+                    >
+                      {mostrarAuditoria ? '▲ Ocultar Auditoria' : '▼ Ver Auditoria do Sistema'}
+                    </button>
+
+                    {mostrarAuditoria && (
+                      <>
+                        <input
+                          style={inputStyle}
+                          placeholder="Pesquisar por usuário, ação, perfil, empresa ou detalhes"
+                          value={buscaAuditoria}
+                          onChange={(e) => setBuscaAuditoria(e.target.value)}
+                        />
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                              Data inicial
+                            </label>
+                            <input
+                              type="date"
+                              style={inputStyle}
+                              value={dataInicioAuditoria}
+                              onChange={(e) => setDataInicioAuditoria(e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
+                              Data final
+                            </label>
+                            <input
+                              type="date"
+                              style={inputStyle}
+                              value={dataFimAuditoria}
+                              onChange={(e) => setDataFimAuditoria(e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        <button style={{ ...buttonStyle, background: '#16a34a' }} onClick={exportarAuditoriaPDF}>
+                          Exportar Auditoria em PDF
+                        </button>
+
+                        <div
+                          style={{
+                            maxHeight: '520px',
+                            overflowY: 'auto',
+                            paddingRight: '6px',
+                            borderRadius: '18px',
+                          }}
+                        >
+                          {auditoriaFiltrada().length === 0 ? (
+                            <div style={cardStyle}>
+                              Nenhum registro de auditoria encontrado.
+                            </div>
+                          ) : (
+                            auditoriaFiltrada().map((item) => (
+                              <div key={`auditoria-${item.id}`} style={cardStyle}>
+                                <strong>{item.acao || 'Ação'}</strong>
+                                <br />
+                                Data/Hora: {item.criado_em ? new Date(item.criado_em).toLocaleString('pt-BR') : '-'}
+                                <br />
+                                Usuário: {item.usuario || '-'}
+                                <br />
+                                Perfil: {item.tipo_usuario || '-'}
+                                <br />
+                                Empresa ID: {item.empresa_id || '-'}
+                                <br />
+                                Detalhes: {item.detalhes || '-'}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </>
               )}
@@ -1147,6 +1663,52 @@ faz_almoco: editFazAlmoco,
                       <button style={buttonStyle} onClick={cadastrarFuncionario}>
                         Cadastrar
                       </button>
+                    </div>
+                  )}
+
+                  {usuarioLogado.tipo === 'master' && (
+                    <div style={sectionStyle}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div>
+                          <h2 style={{ color: '#071638', margin: 0 }}>Notificações no celular</h2>
+                          <p style={{ color: '#586174', margin: '6px 0 0' }}>
+                            Receba um aviso neste aparelho sempre que um funcionário registrar entrada, almoço, volta do almoço ou saída.
+                          </p>
+                        </div>
+
+                        <span
+                          style={{
+                            ...chipStyle,
+                            background: notificacoesPontoAtivas ? '#dcfce7' : '#fee2e2',
+                            color: notificacoesPontoAtivas ? '#166534' : '#991b1b',
+                          }}
+                        >
+                          {notificacoesPontoAtivas ? 'Ativado' : 'Desativado'}
+                        </span>
+                      </div>
+
+                      <button
+                        style={{
+                          ...buttonStyle,
+                          marginTop: '18px',
+                          background: notificacoesPontoAtivas ? '#6b7280' : 'linear-gradient(135deg, #0b5cff 0%, #0046c7 100%)',
+                        }}
+                        onClick={alternarNotificacoesPonto}
+                      >
+                        {notificacoesPontoAtivas ? 'Desativar notificações' : 'Ativar notificações'}
+                      </button>
+
+                      <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>
+                        Observação: as notificações funcionam quando o navegador permite notificações e o sistema está aberto ou ativo no aparelho.
+                      </p>
                     </div>
                   )}
 
@@ -1243,9 +1805,15 @@ faz_almoco: editFazAlmoco,
                                     <br />
                                     <br />
 
-                                    <button style={{ ...buttonStyle, background: '#dc2626' }} onClick={() => excluirFuncionario(u.id)}>
-                                      Excluir
-                                    </button>
+                                    {u.ativo === false ? (
+                                      <button style={{ ...buttonStyle, background: '#16a34a' }} onClick={() => reativarFuncionario(u.id)}>
+                                        Reativar
+                                      </button>
+                                    ) : (
+                                      <button style={{ ...buttonStyle, background: '#dc2626' }} onClick={() => excluirFuncionario(u.id)}>
+                                        Bloquear
+                                      </button>
+                                    )}
 
                                     <button style={{ ...buttonStyle, background: '#2563eb' }} onClick={() => abrirEdicaoFuncionario(u)}>
                                       Editar
