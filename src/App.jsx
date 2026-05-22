@@ -908,6 +908,23 @@ function horaParaMinutos(hora) {
   return Number(partes[0]) * 60 + Number(partes[1])
 }
 
+
+function horarioDentroDoFiltro(minutos, inicioFiltro, fimFiltro) {
+  if (minutos === null) return false
+
+  if (inicioFiltro === null && fimFiltro === null) return true
+
+  if (inicioFiltro !== null && fimFiltro !== null && inicioFiltro > fimFiltro) {
+    return minutos >= inicioFiltro || minutos <= fimFiltro
+  }
+
+  if (inicioFiltro !== null && minutos < inicioFiltro) return false
+  if (fimFiltro !== null && minutos > fimFiltro) return false
+
+  return true
+}
+
+
 function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
   const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
 
@@ -1091,11 +1108,7 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
         .map((hora) => horaParaMinutos(hora))
         .filter((valor) => valor !== null)
 
-      return horarios.some((minutos) => {
-        if (inicioFiltro !== null && minutos < inicioFiltro) return false
-        if (fimFiltro !== null && minutos > fimFiltro) return false
-        return true
-      })
+      return horarios.some((minutos) => horarioDentroDoFiltro(minutos, inicioFiltro, fimFiltro))
     })
     .sort((a, b) => {
       const nomeComparacao = (a.nome || '').localeCompare(b.nome || '')
@@ -1255,6 +1268,147 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
   }, 500)
 
 }
+
+function exportarRelatorioMensalPDF() {
+  const idEmpresaPDF = empresaSelecionada || usuarioLogado?.empresa_id
+
+  const empresaAtual = empresas.find(
+    (empresa) => empresa.id === idEmpresaPDF
+  )
+
+  const funcionariosMensais = gerarRelatorioMensalOrganizado(idEmpresaPDF)
+
+  const janela = window.open(
+    '',
+    '',
+    'width=1000,height=700'
+  )
+
+  let html = `
+    <html>
+      <head>
+        <title>Relatório Mensal de Ponto</title>
+        <style>
+          body{
+            font-family:Arial;
+            padding:30px;
+          }
+
+          h1,h2,h3{
+            color:#001f6b;
+          }
+
+          h1,h2{
+            text-align:center;
+          }
+
+          .funcionario{
+            margin-top:30px;
+            page-break-inside:avoid;
+          }
+
+          .resumo{
+            margin-bottom:10px;
+            color:#333;
+            font-size:13px;
+          }
+
+          table{
+            width:100%;
+            border-collapse:collapse;
+            margin-top:10px;
+            font-size:12px;
+          }
+
+          th,td{
+            border:1px solid #999;
+            padding:8px;
+            text-align:center;
+          }
+
+          th{
+            background:#001f6b;
+            color:white;
+          }
+
+          .rodape{
+            margin-top:40px;
+            text-align:center;
+            font-size:12px;
+            letter-spacing:2px;
+            color:#666;
+          }
+        </style>
+      </head>
+
+      <body>
+        <h1>Relatório Mensal de Ponto</h1>
+        <h2>${empresaAtual ? empresaAtual.nome : ''}</h2>
+        <h2>${mesRelatorioMensal || ''}</h2>
+  `
+
+  if (funcionariosMensais.length === 0) {
+    html += `
+      <p>Nenhum registro encontrado para os filtros selecionados.</p>
+    `
+  }
+
+  funcionariosMensais.forEach((funcionario) => {
+    html += `
+      <div class="funcionario">
+        <h3>${funcionario.nome}</h3>
+        <div class="resumo">
+          Dias trabalhados: ${funcionario.diasTrabalhados} |
+          Pendências: ${funcionario.pendentes}
+        </div>
+
+        <table>
+          <tr>
+            <th>Data</th>
+            <th>Entrada</th>
+            <th>Saída almoço</th>
+            <th>Volta almoço</th>
+            <th>Saída casa</th>
+            <th>Status</th>
+          </tr>
+    `
+
+    funcionario.dias.forEach((dia) => {
+      html += `
+        <tr>
+          <td>${dia.data}</td>
+          <td>${dia.entrada || '-'}</td>
+          <td>${dia.saidaAlmoco || '-'}</td>
+          <td>${dia.voltaAlmoco || '-'}</td>
+          <td>${horaComVirada(dia, 'saida')}</td>
+          <td>${dia.status}</td>
+        </tr>
+      `
+    })
+
+    html += `
+        </table>
+      </div>
+    `
+  })
+
+  html += `
+        <div class="rodape">
+          DEVELOPED BY DINHO OLIVEIRA
+        </div>
+      </body>
+    </html>
+  `
+
+  janela.document.write(html)
+  janela.document.close()
+  janela.focus()
+
+  setTimeout(() => {
+    janela.print()
+  }, 500)
+}
+
 
   const containerStyle = {
     maxWidth: usuarioLogado ? '1120px' : '440px',
@@ -2332,6 +2486,15 @@ faz_almoco: editFazAlmoco,
                         onClick={() => setMostrarRelatorioMensal(!mostrarRelatorioMensal)}
                       >
                         {mostrarRelatorioMensal ? '▲ Ocultar Relatório Mensal' : '▼ Ver Relatório Mensal'}
+                      </button>
+                    )}
+
+                    {(usuarioLogado.tipo !== 'programador' || empresaSelecionada) && (
+                      <button
+                        style={{ ...buttonStyle, background: '#16a34a' }}
+                        onClick={exportarRelatorioMensalPDF}
+                      >
+                        Exportar Relatório Mensal em PDF
                       </button>
                     )}
 
