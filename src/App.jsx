@@ -612,16 +612,17 @@ useEffect(() => {
   async function login() {
     const emailDigitado = email.trim().toLowerCase()
     const senhaDigitada = senha.trim()
+
     const EMAIL_PROGRAMADOR_PADRAO = 'programador@lc.com'
     const SENHA_PROGRAMADOR_PADRAO = 'Nicol@s2309'
 
-    const salvarOuRemoverLogin = () => {
+    const salvarOuRemoverLogin = (emailParaSalvar = emailDigitado, senhaParaSalvar = senhaDigitada) => {
       if (salvarLogin) {
         localStorage.setItem(
           'loginSalvo',
           JSON.stringify({
-            email: emailDigitado,
-            senha: senhaDigitada,
+            email: emailParaSalvar,
+            senha: senhaParaSalvar,
           })
         )
       } else {
@@ -629,25 +630,43 @@ useEffect(() => {
       }
     }
 
-    if (
-      emailDigitado === EMAIL_PROGRAMADOR_PADRAO &&
-      senhaDigitada === SENHA_PROGRAMADOR_PADRAO
-    ) {
+    const usuariosProgramadores = usuarios.filter(
+      (u) => String(u.tipo || '').toLowerCase() === 'programador'
+    )
+
+    const emailEhProgramador =
+      emailDigitado === EMAIL_PROGRAMADOR_PADRAO ||
+      usuariosProgramadores.some(
+        (u) => String(u.email || '').trim().toLowerCase() === emailDigitado
+      )
+
+    const senhaEhProgramador =
+      senhaDigitada === SENHA_PROGRAMADOR_PADRAO ||
+      usuariosProgramadores.some(
+        (u) => String(u.senha || '').trim() === senhaDigitada
+      )
+
+    if (emailEhProgramador && senhaEhProgramador) {
+      const usuarioBanco = usuariosProgramadores.find(
+        (u) => String(u.email || '').trim().toLowerCase() === emailDigitado
+      )
+
       const usuarioProgramador = {
-        nome: 'PROGRAMADOR',
+        ...(usuarioBanco || {}),
+        nome: usuarioBanco?.nome || 'PROGRAMADOR',
         tipo: 'programador',
-        email: EMAIL_PROGRAMADOR_PADRAO,
+        email: usuarioBanco?.email || EMAIL_PROGRAMADOR_PADRAO,
         empresa_id: null,
       }
 
-      salvarOuRemoverLogin()
+      salvarOuRemoverLogin(EMAIL_PROGRAMADOR_PADRAO, SENHA_PROGRAMADOR_PADRAO)
 
       setUsuarioLogado(usuarioProgramador)
       setEmpresaSelecionada(null)
 
       await registrarAuditoria(
         'LOGIN_PROGRAMADOR',
-        'Login realizado no painel do programador com acesso principal.',
+        'Login realizado no painel do programador.',
         usuarioProgramador
       )
 
@@ -659,8 +678,8 @@ useEffect(() => {
 
     const empresaMaster = empresas.find(
       (empresa) =>
-        empresa.email_master?.toLowerCase() === emailDigitado &&
-        String(empresa.senha_master || '') === senhaDigitada &&
+        String(empresa.email_master || '').trim().toLowerCase() === emailDigitado &&
+        String(empresa.senha_master || '').trim() === senhaDigitada &&
         empresa.ativo !== false
     )
 
@@ -695,8 +714,8 @@ useEffect(() => {
 
     const usuario = usuarios.find(
       (u) =>
-        u.email?.toLowerCase() === emailDigitado &&
-        String(u.senha || '') === senhaDigitada
+        String(u.email || '').trim().toLowerCase() === emailDigitado &&
+        String(u.senha || '').trim() === senhaDigitada
     )
 
     if (!usuario) {
@@ -711,7 +730,7 @@ useEffect(() => {
 
     salvarOuRemoverLogin()
 
-    if (usuario.tipo === 'programador') {
+    if (String(usuario.tipo || '').toLowerCase() === 'programador') {
       const usuarioProgramador = {
         ...usuario,
         nome: usuario.nome || 'PROGRAMADOR',
