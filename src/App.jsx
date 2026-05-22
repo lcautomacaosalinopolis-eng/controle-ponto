@@ -611,15 +611,17 @@ useEffect(() => {
 
   async function login() {
     const emailDigitado = email.trim().toLowerCase()
-    const senhaDigitada = senha
+    const senhaDigitada = senha.trim()
+    const EMAIL_PROGRAMADOR_PADRAO = 'programador@lc.com'
+    const SENHA_PROGRAMADOR_PADRAO = 'Nicol@s2309'
 
     const salvarOuRemoverLogin = () => {
       if (salvarLogin) {
         localStorage.setItem(
           'loginSalvo',
           JSON.stringify({
-            email,
-            senha,
+            email: emailDigitado,
+            senha: senhaDigitada,
           })
         )
       } else {
@@ -627,10 +629,38 @@ useEffect(() => {
       }
     }
 
+    if (
+      emailDigitado === EMAIL_PROGRAMADOR_PADRAO &&
+      senhaDigitada === SENHA_PROGRAMADOR_PADRAO
+    ) {
+      const usuarioProgramador = {
+        nome: 'PROGRAMADOR',
+        tipo: 'programador',
+        email: EMAIL_PROGRAMADOR_PADRAO,
+        empresa_id: null,
+      }
+
+      salvarOuRemoverLogin()
+
+      setUsuarioLogado(usuarioProgramador)
+      setEmpresaSelecionada(null)
+
+      await registrarAuditoria(
+        'LOGIN_PROGRAMADOR',
+        'Login realizado no painel do programador com acesso principal.',
+        usuarioProgramador
+      )
+
+      setEmail('')
+      setSenha('')
+      mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
+      return
+    }
+
     const empresaMaster = empresas.find(
       (empresa) =>
         empresa.email_master?.toLowerCase() === emailDigitado &&
-        empresa.senha_master === senhaDigitada &&
+        String(empresa.senha_master || '') === senhaDigitada &&
         empresa.ativo !== false
     )
 
@@ -638,7 +668,7 @@ useEffect(() => {
       setUsuarioLogado({
         nome: 'MASTER',
         tipo: 'master',
-        email,
+        email: emailDigitado,
         empresa_id: empresaMaster.id,
         empresa_nome: empresaMaster.nome,
       })
@@ -651,7 +681,7 @@ useEffect(() => {
         {
           nome: 'MASTER',
           tipo: 'master',
-          email,
+          email: emailDigitado,
           empresa_id: empresaMaster.id,
         }
       )
@@ -664,11 +694,13 @@ useEffect(() => {
     }
 
     const usuario = usuarios.find(
-      (u) => u.email?.toLowerCase() === emailDigitado && u.senha === senhaDigitada
+      (u) =>
+        u.email?.toLowerCase() === emailDigitado &&
+        String(u.senha || '') === senhaDigitada
     )
 
     if (!usuario) {
-      mostrarMensagem('Usuário não encontrado.')
+      mostrarMensagem('Usuário não encontrado ou senha incorreta.')
       return
     }
 
@@ -684,6 +716,7 @@ useEffect(() => {
         ...usuario,
         nome: usuario.nome || 'PROGRAMADOR',
         tipo: 'programador',
+        email: usuario.email || EMAIL_PROGRAMADOR_PADRAO,
         empresa_id: null,
       }
 
@@ -692,7 +725,7 @@ useEffect(() => {
 
       await registrarAuditoria(
         'LOGIN_PROGRAMADOR',
-        'Login realizado no painel do programador.',
+        'Login realizado no painel do programador pelo cadastro no banco.',
         usuarioProgramador
       )
 
