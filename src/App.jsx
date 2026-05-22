@@ -19,6 +19,8 @@ function App() {
   const [editEmpresaSenhaMaster, setEditEmpresaSenhaMaster] = useState('')
   const [editEmpresaAtiva, setEditEmpresaAtiva] = useState(true)
   const [registrandoPonto, setRegistrandoPonto] = useState(false)
+  const [localizacaoAutorizada, setLocalizacaoAutorizada] = useState(false)
+  const [solicitandoLocalizacao, setSolicitandoLocalizacao] = useState(false)
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
@@ -144,6 +146,16 @@ useEffect(() => {
     supabase.removeChannel(canalNotificacoes)
   }
 }, [usuarioLogado, notificacoesPontoAtivas])
+
+useEffect(() => {
+  if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') {
+    setLocalizacaoAutorizada(false)
+    setSolicitandoLocalizacao(false)
+    return
+  }
+
+  verificarLocalizacaoFuncionario()
+}, [usuarioLogado])
 
   function mostrarMensagem(texto) {
     setMensagem(texto)
@@ -467,7 +479,36 @@ useEffect(() => {
     return Number.isNaN(timestampFallback) ? 0 : timestampFallback
   }
 
-  function obterLocalizacaoObrigatoria() {
+  async function verificarLocalizacaoFuncionario() {
+    if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') return
+
+    if (!navigator.geolocation) {
+      setLocalizacaoAutorizada(false)
+      mostrarMensagem('Este aparelho ou navegador não suporta localização. Use um aparelho com GPS para bater ponto.')
+      return
+    }
+
+    setSolicitandoLocalizacao(true)
+
+    try {
+      await obterLocalizacaoObrigatoria(false)
+      setLocalizacaoAutorizada(true)
+    } catch (erro) {
+      setLocalizacaoAutorizada(false)
+      mostrarMensagem(erro.message || 'A localização é obrigatória para bater ponto.')
+    } finally {
+      setSolicitandoLocalizacao(false)
+    }
+  }
+
+  function textoStatusLocalizacao() {
+    if (usuarioLogado?.tipo !== 'funcionario') return ''
+    if (solicitandoLocalizacao) return 'Solicitando localização do aparelho...'
+    if (localizacaoAutorizada) return 'Localização autorizada neste aparelho.'
+    return 'Localização obrigatória: permita o acesso para liberar o ponto.'
+  }
+
+  function obterLocalizacaoObrigatoria(atualizarEstado = true) {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
         reject(new Error('Este aparelho ou navegador não suporta localização.'))
@@ -483,6 +524,8 @@ useEffect(() => {
             return
           }
 
+          if (atualizarEstado) setLocalizacaoAutorizada(true)
+
           resolve({
             latitude,
             longitude,
@@ -491,6 +534,7 @@ useEffect(() => {
           })
         },
         () => {
+          if (atualizarEstado) setLocalizacaoAutorizada(false)
           reject(new Error('Autorize a localização do aparelho para registrar o ponto.'))
         },
         {
@@ -756,11 +800,86 @@ setNovoFazAlmoco(true)
     mostrarMensagem('Funcionário reativado.')
   }
 
+  async function excluirFuncionarioDefinitivo(id) {
+    if (usuarioLogado?.tipo !== 'programador') {
+      mostrarMensagem('Apenas o usuário programador pode excluir definitivamente.')
+      return
+    }
+
+    const funcionario = usuarios.find((u) => u.id === id)
+
+    const confirmar = confirm(
+      `ATENÇÃO: deseja excluir definitivamente ${funcionario?.nome || 'este funcionário'}? Todos os pontos e relatórios dele serão apagados do sistema.`
+    )
+
+    if (!confirmar) return
+
+    const confirmarFinal = confirm(
+      'Confirme novamente. Esta ação não pode ser desfeita e não deixará histórico de ponto deste funcionário.'
+    )
+
+    if (!confirmarFinal) return
+
+    const { error: erroPontos } = await supabase
+      .from('pontos')
+      .delete()
+      .eq('usuario_id', id)
+
+    if (erroPontos) {
+      mostrarMensagem('Erro ao excluir os pontos do funcionário.')
+      return
+    }
+
+    try {
+      if (funcionario?.nome) {
+        await supabase.from('auditoria').delete().eq('usuario', funcionario.nome)
+        await supabase.from('auditoria').delete().ilike('detalhes', `%${funcionario.nome}%`)
+      }
+    } catch (erro) {
+      // A limpeza da auditoria não deve travar a exclusão principal.
+    }
+
+    const { error: erroUsuario } = await supabase
+      .from('usuarios')
+      .delete()
+      .eq('id', id)
+
+    if (erroUsuario) {
+      mostrarMensagem('Erro ao excluir o funcionário.')
+      return
+    }
+
+    setPontos((listaAtual) => listaAtual.filter((p) => String(p.usuario_id) !== String(id)))
+    setUsuarios((listaAtual) => listaAtual.filter((u) => String(u.id) !== String(id)))
+
+    if (funcionarioEditando?.id === id) {
+      setFuncionarioEditando(null)
+    }
+
+    await carregarUsuarios()
+    await carregarPontos()
+    await carregarAuditoria()
+
+    mostrarMensagem('Funcionário excluído definitivamente. Pontos e relatórios removidos.')
+  }
+
  async function registrarPonto() {
 
   if (registrandoPonto) return
 
   setRegistrandoPonto(true)
+
+  if (!localizacaoAutorizada) {
+    try {
+      mostrarMensagem('Autorize a localização para liberar o registro de ponto.')
+      await obterLocalizacaoObrigatoria()
+      setLocalizacaoAutorizada(true)
+    } catch (erro) {
+      mostrarMensagem(erro.message || 'Localização obrigatória. Autorize a localização do aparelho para bater o ponto.')
+      setRegistrandoPonto(false)
+      return
+    }
+  }
 
   let horarioOficial
 
@@ -2361,6 +2480,15 @@ faz_almoco: editFazAlmoco,
                                       </button>
                                     )}
 
+                                    {usuarioLogado.tipo === 'programador' && (
+                                      <button
+                                        style={{ ...buttonStyle, background: '#7f1d1d' }}
+                                        onClick={() => excluirFuncionarioDefinitivo(u.id)}
+                                      >
+                                        Excluir definitivamente
+                                      </button>
+                                    )}
+
                                     <button style={{ ...buttonStyle, background: '#2563eb' }} onClick={() => abrirEdicaoFuncionario(u)}>
                                       Editar
                                     </button>
@@ -2756,7 +2884,7 @@ faz_almoco: editFazAlmoco,
                         <p style={{ color: '#dbeafe', margin: 0, fontSize: '17px' }}>
                           Próximo registro: <strong style={{ color: '#fff' }}>{obterProximoPontoFuncionario()}</strong>
                           <br />
-                          <span style={{ fontSize: '14px' }}>A localização do aparelho será obrigatória.</span>
+                          <span style={{ fontSize: '14px' }}>{textoStatusLocalizacao()}</span>
                         </p>
                       </div>
 
@@ -2777,6 +2905,24 @@ faz_almoco: editFazAlmoco,
                       </div>
                     </div>
 
+                    {!localizacaoAutorizada && (
+                      <button
+                        style={{
+                          ...buttonStyle,
+                          marginTop: '24px',
+                          marginBottom: 0,
+                          background: '#facc15',
+                          color: '#713f12',
+                          boxShadow: '0 14px 34px rgba(250, 204, 21, 0.22)',
+                          opacity: solicitandoLocalizacao ? 0.75 : 1,
+                        }}
+                        onClick={verificarLocalizacaoFuncionario}
+                        disabled={solicitandoLocalizacao}
+                      >
+                        {solicitandoLocalizacao ? 'Solicitando localização...' : 'Permitir localização para bater ponto'}
+                      </button>
+                    )}
+
                     <button
                       style={{
                         ...buttonStyle,
@@ -2787,12 +2933,12 @@ faz_almoco: editFazAlmoco,
                         background: '#ffffff',
                         color: '#0757d8',
                         boxShadow: '0 14px 34px rgba(0,0,0,0.18)',
-                        opacity: registrandoPonto ? 0.75 : 1,
+                        opacity: registrandoPonto || !localizacaoAutorizada ? 0.65 : 1,
                       }}
                       onClick={registrarPonto}
-                      disabled={registrandoPonto || obterProximoPontoFuncionario() === 'Jornada completa'}
+                      disabled={registrandoPonto || !localizacaoAutorizada || obterProximoPontoFuncionario() === 'Jornada completa'}
                     >
-                      {registrandoPonto ? 'Consultando horário e localização...' : obterProximoPontoFuncionario() === 'Jornada completa' ? 'Jornada completa hoje' : 'Registrar Ponto'}
+                      {registrandoPonto ? 'Consultando horário e localização...' : !localizacaoAutorizada ? 'Libere a localização para bater ponto' : obterProximoPontoFuncionario() === 'Jornada completa' ? 'Jornada completa hoje' : 'Registrar Ponto'}
                     </button>
                   </div>
 
