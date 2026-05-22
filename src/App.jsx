@@ -61,6 +61,7 @@ const [dataFimAuditoria, setDataFimAuditoria] = useState('')
   async function carregarPontos() {
     const { data } = await supabase.from('pontos').select('*').order('id', { ascending: false })
     if (data) setPontos(data)
+    return data || []
   }
 
   async function carregarAuditoria() {
@@ -323,6 +324,47 @@ useEffect(() => {
     })
   }
 
+  function formatarDataISOParaBR(dataISO) {
+    if (!dataISO || !dataISO.includes('-')) return '-'
+
+    const [ano, mes, dia] = dataISO.split('-')
+    return `${dia}/${mes}/${ano}`
+  }
+
+  function somarDiasISO(dataISO, quantidadeDias) {
+    const [ano, mes, dia] = dataISO.split('-').map(Number)
+    const data = new Date(Date.UTC(ano, mes - 1, dia))
+    data.setUTCDate(data.getUTCDate() + quantidadeDias)
+
+    return data.toISOString().slice(0, 10)
+  }
+
+  function obterDataJornadaISO(usuarioId, dataOficialISO, horaOficialBR) {
+    const LIMITE_MADRUGADA_MINUTOS = 6 * 60
+    const minutosAgora = horaParaMinutos(horaOficialBR)
+
+    if (minutosAgora === null || minutosAgora >= LIMITE_MADRUGADA_MINUTOS) {
+      return dataOficialISO
+    }
+
+    const dataAnteriorISO = somarDiasISO(dataOficialISO, -1)
+
+    const registrosOntem = pontos.filter(
+      (p) =>
+        p.usuario_id === usuarioId &&
+        p.data_iso === dataAnteriorISO
+    )
+
+    const temEntradaOntem = registrosOntem.some((p) => p.tipo === 'Entrada')
+    const temSaidaOntem = registrosOntem.some((p) => p.tipo === 'Saída')
+
+    if (temEntradaOntem && !temSaidaOntem) {
+      return dataAnteriorISO
+    }
+
+    return dataOficialISO
+  }
+
   function formatarHoraBR(dataHora) {
     return new Date(dataHora).toLocaleTimeString('pt-BR', {
       timeZone: 'America/Sao_Paulo',
@@ -393,6 +435,36 @@ useEffect(() => {
       minute: '2-digit',
       second: '2-digit',
     })
+  }
+
+  function normalizarTipoPonto(tipo) {
+    const texto = String(tipo || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+
+    if (texto === 'entrada') return 'Entrada'
+    if (texto.includes('saida') && texto.includes('almoco')) return 'Saída Almoço'
+    if (texto.includes('volta') && texto.includes('almoco')) return 'Volta Almoço'
+    if (texto === 'saida' || texto.includes('saida casa')) return 'Saída'
+
+    return tipo || ''
+  }
+
+  function obterTimestampRegistro(registro) {
+    const dataHora = registro?.registrado_em || registro?.created_at
+
+    if (dataHora) {
+      const timestamp = new Date(dataHora).getTime()
+      if (!Number.isNaN(timestamp)) return timestamp
+    }
+
+    const hora = registro?.hora || '00:00:00'
+    const dataISO = registro?.data_iso || hojeISO()
+    const timestampFallback = new Date(`${dataISO}T${hora}`).getTime()
+
+    return Number.isNaN(timestampFallback) ? 0 : timestampFallback
   }
 
   async function login() {
@@ -627,19 +699,20 @@ setNovoFazAlmoco(true)
   }
 
   const dataOficialISO = formatarDataISO(horarioOficial)
-  const dataOficialBR = formatarDataBR(horarioOficial)
   const horaOficialBR = formatarHoraBR(horarioOficial)
+  const dataJornadaISO = obterDataJornadaISO(usuarioLogado.id, dataOficialISO, horaOficialBR)
+  const dataJornadaBR = formatarDataISOParaBR(dataJornadaISO)
 
-  const registrosHoje = pontos.filter(
+  const registrosJornada = pontos.filter(
     (p) =>
       p.usuario_id === usuarioLogado.id &&
-      p.data_iso === dataOficialISO
+      p.data_iso === dataJornadaISO
   )
 
-  const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
-  const saidaAlmoco = registrosHoje.find((p) => p.tipo === 'Saída Almoço')
-  const voltaAlmoco = registrosHoje.find((p) => p.tipo === 'Volta Almoço')
-  const saida = registrosHoje.find((p) => p.tipo === 'Saída')
+  const entrada = registrosJornada.find((p) => p.tipo === 'Entrada')
+  const saidaAlmoco = registrosJornada.find((p) => p.tipo === 'Saída Almoço')
+  const voltaAlmoco = registrosJornada.find((p) => p.tipo === 'Volta Almoço')
+  const saida = registrosJornada.find((p) => p.tipo === 'Saída')
 
   let tipo = ''
 
@@ -662,7 +735,7 @@ setNovoFazAlmoco(true)
     }
 
     else {
-      mostrarMensagem('Você já registrou todos os pontos de hoje.')
+      mostrarMensagem('Você já registrou todos os pontos desta jornada.')
       setRegistrandoPonto(false)
       return
     }
@@ -678,32 +751,56 @@ setNovoFazAlmoco(true)
     }
 
     else {
-      mostrarMensagem('Você já registrou entrada e saída hoje.')
+      mostrarMensagem('Você já registrou entrada e saída nesta jornada.')
       setRegistrandoPonto(false)
       return
     }
 
   }
 
-  const { error } = await supabase.from('pontos').insert([
-    {
-      usuario_id: usuarioLogado.id,
-      empresa_id: usuarioLogado.empresa_id,
-      nome: usuarioLogado.nome,
-      data: dataOficialBR,
-      data_iso: dataOficialISO,
-      hora: horaOficialBR,
-      tipo,
-    },
-  ])
+  const { data: pontoInserido, error } = await supabase
+    .from('pontos')
+    .insert([
+      {
+        usuario_id: usuarioLogado.id,
+        empresa_id: usuarioLogado.empresa_id,
+        nome: usuarioLogado.nome,
+        data: dataJornadaBR,
+        data_iso: dataJornadaISO,
+        hora: horaOficialBR,
+        tipo,
+      },
+    ])
+    .select('*')
+    .single()
 
   if (error) {
     mostrarMensagem('Erro ao registrar ponto.')
     setRegistrandoPonto(false)
     return
   }
-    await carregarPontos()
-    await registrarAuditoria('REGISTRAR_PONTO', `${usuarioLogado.nome} registrou ${tipo} às ${horaOficialBR}.`)
+    if (pontoInserido) {
+      setPontos((listaAtual) => [
+        pontoInserido,
+        ...listaAtual.filter((p) => p.id !== pontoInserido.id),
+      ])
+    }
+
+    setDataRelatorio(dataJornadaISO)
+
+    carregarPontos().then((pontosAtualizados) => {
+      if (pontoInserido && !pontosAtualizados.some((p) => p.id === pontoInserido.id)) {
+        setPontos((listaAtual) => [
+          pontoInserido,
+          ...listaAtual.filter((p) => p.id !== pontoInserido.id),
+        ])
+      }
+    })
+
+    await registrarAuditoria(
+      'REGISTRAR_PONTO',
+      `${usuarioLogado.nome} registrou ${tipo} às ${horaOficialBR} na jornada de ${dataJornadaBR}.`
+    )
     setRegistrandoPonto(false)
     mostrarMensagem(`✅ ${tipo} registrada com horário oficial!`)
   }
@@ -794,8 +891,8 @@ function gerarHistoricoDia(empresaId = usuarioLogado?.empresa_id) {
       hora: formatarHoraServidor(p.registrado_em, p.hora),
     }))
     .sort((a, b) => {
-      const horaComparacao = (a.hora || '').localeCompare(b.hora || '')
-      if (horaComparacao !== 0) return horaComparacao
+      const dataComparacao = (obterTimestampRegistro(b) || 0) - (obterTimestampRegistro(a) || 0)
+      if (dataComparacao !== 0) return dataComparacao
 
       return (a.nome || '').localeCompare(b.nome || '')
     })
@@ -855,6 +952,181 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
       return (a.hora || '').localeCompare(b.hora || '')
     })
 }
+
+function criarLinhaJornada(registro) {
+  return {
+    usuario_id: registro.usuario_id,
+    nome: registro.nome,
+    data: registro.data,
+    data_iso: registro.data_iso,
+    entrada: '',
+    saidaAlmoco: '',
+    voltaAlmoco: '',
+    saida: '',
+    ultimoPontoTipo: '',
+    ultimoPontoHora: '',
+    ultimoPontoTimestamp: 0,
+    faz_almoco: usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.faz_almoco !== false,
+  }
+}
+
+function preencherLinhaJornada(linha, registro) {
+  const tipo = normalizarTipoPonto(registro.tipo)
+  const hora = formatarHoraServidor(registro.registrado_em, registro.hora)
+  const timestamp = obterTimestampRegistro(registro)
+
+  if (tipo === 'Entrada') linha.entrada = hora
+  if (tipo === 'Saída Almoço') linha.saidaAlmoco = hora
+  if (tipo === 'Volta Almoço') linha.voltaAlmoco = hora
+  if (tipo === 'Saída') linha.saida = hora
+
+  if (timestamp >= (linha.ultimoPontoTimestamp || 0)) {
+    linha.ultimoPontoTimestamp = timestamp
+    linha.ultimoPontoTipo = tipo
+    linha.ultimoPontoHora = hora
+  }
+}
+
+function statusLinhaJornada(linha) {
+  if (linha.faz_almoco) {
+    return linha.entrada && linha.saidaAlmoco && linha.voltaAlmoco && linha.saida
+      ? 'Completo'
+      : 'Pendente'
+  }
+
+  return linha.entrada && linha.saida ? 'Completo' : 'Pendente'
+}
+
+function horaComVirada(linha, campo) {
+  const valor = linha[campo]
+
+  if (!valor) return '-'
+
+  if (campo === 'saida' && linha.entrada) {
+    const entradaMinutos = horaParaMinutos(linha.entrada)
+    const saidaMinutos = horaParaMinutos(valor)
+
+    if (entradaMinutos !== null && saidaMinutos !== null && saidaMinutos < entradaMinutos) {
+      return `${valor} (+1 dia)`
+    }
+  }
+
+  return valor
+}
+
+function gerarRelatorioDiarioOrganizado(empresaId = usuarioLogado?.empresa_id) {
+  const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
+
+  if (!idEmpresa || !dataRelatorio) return []
+
+  const agrupado = {}
+
+  pontos
+    .filter((p) => p.empresa_id === idEmpresa && p.data_iso === dataRelatorio)
+    .forEach((registro) => {
+      const chave = `${registro.usuario_id || registro.nome}-${registro.data_iso}`
+
+      if (!agrupado[chave]) {
+        agrupado[chave] = criarLinhaJornada(registro)
+      }
+
+      preencherLinhaJornada(agrupado[chave], registro)
+    })
+
+  return Object.values(agrupado)
+    .map((linha) => ({
+      ...linha,
+      status: statusLinhaJornada(linha),
+    }))
+    .sort((a, b) => {
+      const dataComparacao = (b.ultimoPontoTimestamp || 0) - (a.ultimoPontoTimestamp || 0)
+      if (dataComparacao !== 0) return dataComparacao
+
+      return (a.nome || '').localeCompare(b.nome || '')
+    })
+}
+
+function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
+  const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
+
+  if (!idEmpresa || !mesRelatorioMensal) return []
+
+  const inicioFiltro = horaInicioRelatorioMensal ? horaParaMinutos(horaInicioRelatorioMensal) : null
+  const fimFiltro = horaFimRelatorioMensal ? horaParaMinutos(horaFimRelatorioMensal) : null
+  const agrupado = {}
+
+  pontos
+    .filter((p) => {
+      if (p.empresa_id !== idEmpresa) return false
+      if (!p.data_iso?.startsWith(mesRelatorioMensal)) return false
+
+      if (
+        funcionarioRelatorioMensal !== 'todos' &&
+        String(p.usuario_id) !== String(funcionarioRelatorioMensal)
+      ) {
+        return false
+      }
+
+      return true
+    })
+    .forEach((registro) => {
+      const chave = `${registro.usuario_id || registro.nome}-${registro.data_iso}`
+
+      if (!agrupado[chave]) {
+        agrupado[chave] = criarLinhaJornada(registro)
+      }
+
+      preencherLinhaJornada(agrupado[chave], registro)
+    })
+
+  const linhas = Object.values(agrupado)
+    .map((linha) => ({
+      ...linha,
+      status: statusLinhaJornada(linha),
+    }))
+    .filter((linha) => {
+      if (inicioFiltro === null && fimFiltro === null) return true
+
+      const horarios = [linha.entrada, linha.saidaAlmoco, linha.voltaAlmoco, linha.saida]
+        .map((hora) => horaParaMinutos(hora))
+        .filter((valor) => valor !== null)
+
+      return horarios.some((minutos) => {
+        if (inicioFiltro !== null && minutos < inicioFiltro) return false
+        if (fimFiltro !== null && minutos > fimFiltro) return false
+        return true
+      })
+    })
+    .sort((a, b) => {
+      const nomeComparacao = (a.nome || '').localeCompare(b.nome || '')
+      if (nomeComparacao !== 0) return nomeComparacao
+
+      return (a.data_iso || '').localeCompare(b.data_iso || '')
+    })
+
+  const funcionarios = {}
+
+  linhas.forEach((linha) => {
+    const chaveFuncionario = String(linha.usuario_id || linha.nome)
+
+    if (!funcionarios[chaveFuncionario]) {
+      funcionarios[chaveFuncionario] = {
+        usuario_id: linha.usuario_id,
+        nome: linha.nome,
+        dias: [],
+      }
+    }
+
+    funcionarios[chaveFuncionario].dias.push(linha)
+  })
+
+  return Object.values(funcionarios).map((funcionario) => ({
+    ...funcionario,
+    diasTrabalhados: funcionario.dias.length,
+    pendentes: funcionario.dias.filter((dia) => dia.status !== 'Completo').length,
+  }))
+}
+
  function exportarRelatorioPDF() {
 
   const idEmpresaPDF = empresaSelecionada || usuarioLogado?.empresa_id
@@ -863,7 +1135,7 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
     (empresa) => empresa.id === idEmpresaPDF
   )
 
-  const registros = gerarRelatorio(idEmpresaPDF)
+  const registros = gerarRelatorioDiarioOrganizado(idEmpresaPDF)
 
   const janela = window.open(
     '',
@@ -953,7 +1225,7 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
         <td>${r.entrada || '-'}</td>
         <td>${r.saidaAlmoco || '-'}</td>
         <td>${r.voltaAlmoco || '-'}</td>
-        <td>${r.saida || '-'}</td>
+        <td>${horaComVirada(r, 'saida')}</td>
         <td>${r.status}</td>
       </tr>
     `
@@ -1069,16 +1341,18 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
 function obterProximoPontoFuncionario() {
   if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') return 'Registrar Ponto'
 
-  const registrosHoje = pontos.filter(
+  const dataJornadaISO = obterDataJornadaISO(usuarioLogado.id, hojeISO(), horaAtual())
+
+  const registrosJornada = pontos.filter(
     (p) =>
       p.usuario_id === usuarioLogado.id &&
-      p.data_iso === hojeISO()
+      p.data_iso === dataJornadaISO
   )
 
-  const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
-  const saidaAlmoco = registrosHoje.find((p) => p.tipo === 'Saída Almoço')
-  const voltaAlmoco = registrosHoje.find((p) => p.tipo === 'Volta Almoço')
-  const saida = registrosHoje.find((p) => p.tipo === 'Saída')
+  const entrada = registrosJornada.find((p) => p.tipo === 'Entrada')
+  const saidaAlmoco = registrosJornada.find((p) => p.tipo === 'Saída Almoço')
+  const voltaAlmoco = registrosJornada.find((p) => p.tipo === 'Volta Almoço')
+  const saida = registrosJornada.find((p) => p.tipo === 'Saída')
 
   if (usuarioLogado.faz_almoco) {
     if (!entrada) return 'Entrada'
@@ -1097,11 +1371,13 @@ function obterProximoPontoFuncionario() {
 function historicoFuncionarioHoje() {
   if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') return []
 
+  const dataJornadaISO = obterDataJornadaISO(usuarioLogado.id, hojeISO(), horaAtual())
+
   return pontos
     .filter(
       (p) =>
         p.usuario_id === usuarioLogado.id &&
-        p.data_iso === hojeISO()
+        p.data_iso === dataJornadaISO
     )
     .map((p) => ({
       id: p.id,
@@ -1911,40 +2187,71 @@ faz_almoco: editFazAlmoco,
                           <>
                             {empresasVisiveis()
                               .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
-                              .map((empresa) => (
-                                <div key={empresa.id}>
-                                  {usuarioLogado.tipo === 'programador' && (
-                                    <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
-                                  )}
+                              .map((empresa) => {
+                                const registrosDiarios = gerarRelatorioDiarioOrganizado(empresa.id)
 
-                                  {gerarHistoricoDia(empresa.id).length === 0 ? (
-                                    <div style={cardStyle}>
-                                      Nenhum registro encontrado para esta data.
-                                    </div>
-                                  ) : (
-                                    <div
-                                      style={{
-                                        maxHeight: '520px',
-                                        overflowY: 'auto',
-                                        paddingRight: '6px',
-                                        borderRadius: '18px',
-                                      }}
-                                    >
-                                      {gerarHistoricoDia(empresa.id).map((r) => (
-                                        <div key={`${empresa.id}-${r.id}`} style={cardStyle}>
-                                          <strong>{r.nome}</strong>
-                                          <br />
-                                          Data: {r.data}
-                                          <br />
-                                          Horário: {r.hora || '-'}
-                                          <br />
-                                          Tipo: {r.tipo}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
+                                return (
+                                  <div key={empresa.id}>
+                                    {usuarioLogado.tipo === 'programador' && (
+                                      <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
+                                    )}
+
+                                    {registrosDiarios.length === 0 ? (
+                                      <div style={cardStyle}>
+                                        Nenhum registro encontrado para esta data.
+                                      </div>
+                                    ) : (
+                                      <div
+                                        style={{
+                                          maxHeight: '520px',
+                                          overflowY: 'auto',
+                                          paddingRight: '6px',
+                                          borderRadius: '18px',
+                                        }}
+                                      >
+                                        {registrosDiarios.map((r) => (
+                                          <div key={`${empresa.id}-${r.usuario_id || r.nome}-${r.data_iso}`} style={cardStyle}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                                              <div>
+                                                <strong>{r.nome}</strong>
+                                                <br />
+                                                Data: {r.data}
+                                                <br />
+                                                <span style={{ color: '#0757d8', fontWeight: 'bold' }}>
+                                                  Último ponto: {r.ultimoPontoTipo || '-'} {r.ultimoPontoHora ? `às ${r.ultimoPontoHora}` : ''}
+                                                </span>
+                                              </div>
+                                              <span
+                                                style={{
+                                                  ...chipStyle,
+                                                  background: r.status === 'Completo' ? '#dcfce7' : '#fee2e2',
+                                                  color: r.status === 'Completo' ? '#166534' : '#991b1b',
+                                                }}
+                                              >
+                                                {r.status}
+                                              </span>
+                                            </div>
+
+                                            <div
+                                              style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                                                gap: '10px',
+                                                marginTop: '14px',
+                                              }}
+                                            >
+                                              <div><strong>Entrada</strong><br />{r.entrada || '-'}</div>
+                                              <div><strong>Saída almoço</strong><br />{r.saidaAlmoco || '-'}</div>
+                                              <div><strong>Volta almoço</strong><br />{r.voltaAlmoco || '-'}</div>
+                                              <div><strong>Saída casa</strong><br />{horaComVirada(r, 'saida')}</div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
                           </>
                         )}
                       </>
@@ -2033,7 +2340,7 @@ faz_almoco: editFazAlmoco,
                         {empresasVisiveis()
                           .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
                           .map((empresa) => {
-                            const registrosMensais = gerarRelatorioMensal(empresa.id)
+                            const funcionariosMensais = gerarRelatorioMensalOrganizado(empresa.id)
 
                             return (
                               <div key={`mensal-${empresa.id}`}>
@@ -2041,28 +2348,73 @@ faz_almoco: editFazAlmoco,
                                   <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
                                 )}
 
-                                {registrosMensais.length === 0 ? (
+                                {funcionariosMensais.length === 0 ? (
                                   <div style={cardStyle}>
                                     Nenhum registro encontrado para os filtros selecionados.
                                   </div>
                                 ) : (
                                   <div
                                     style={{
-                                      maxHeight: '520px',
+                                      maxHeight: '620px',
                                       overflowY: 'auto',
                                       paddingRight: '6px',
                                       borderRadius: '18px',
                                     }}
                                   >
-                                    {registrosMensais.map((r) => (
-                                      <div key={`mensal-${empresa.id}-${r.id}`} style={cardStyle}>
-                                        <strong>{r.nome}</strong>
-                                        <br />
-                                        Data: {r.data}
-                                        <br />
-                                        Horário: {r.hora || '-'}
-                                        <br />
-                                        Tipo: {r.tipo}
+                                    {funcionariosMensais.map((funcionario) => (
+                                      <div key={`mensal-${empresa.id}-${funcionario.usuario_id || funcionario.nome}`} style={cardStyle}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                                          <div>
+                                            <strong style={{ fontSize: '18px' }}>{funcionario.nome}</strong>
+                                            <br />
+                                            <span style={{ color: '#586174' }}>
+                                              Dias trabalhados: {funcionario.diasTrabalhados} • Pendências: {funcionario.pendentes}
+                                            </span>
+                                          </div>
+                                          <span
+                                            style={{
+                                              ...chipStyle,
+                                              background: funcionario.pendentes === 0 ? '#dcfce7' : '#fee2e2',
+                                              color: funcionario.pendentes === 0 ? '#166534' : '#991b1b',
+                                            }}
+                                          >
+                                            {funcionario.pendentes === 0 ? 'Tudo certo' : 'Verificar'}
+                                          </span>
+                                        </div>
+
+                                        <div style={{ overflowX: 'auto', marginTop: '14px' }}>
+                                          <table
+                                            style={{
+                                              width: '100%',
+                                              borderCollapse: 'collapse',
+                                              minWidth: '720px',
+                                              fontSize: '14px',
+                                            }}
+                                          >
+                                            <thead>
+                                              <tr style={{ background: '#001f6b', color: '#fff' }}>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Data</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Entrada</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Saída almoço</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Volta almoço</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Saída casa</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {funcionario.dias.map((dia) => (
+                                                <tr key={`mensal-dia-${empresa.id}-${funcionario.usuario_id || funcionario.nome}-${dia.data_iso}`}>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.data}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.entrada || '-'}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.saidaAlmoco || '-'}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.voltaAlmoco || '-'}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{horaComVirada(dia, 'saida')}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.status}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
