@@ -467,6 +467,80 @@ useEffect(() => {
     return Number.isNaN(timestampFallback) ? 0 : timestampFallback
   }
 
+  function obterLocalizacaoObrigatoria() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Este aparelho ou navegador não suporta localização.'))
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (posicao) => {
+          const { latitude, longitude, accuracy } = posicao.coords || {}
+
+          if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+            reject(new Error('Não foi possível obter uma localização válida.'))
+            return
+          }
+
+          resolve({
+            latitude,
+            longitude,
+            precisao: typeof accuracy === 'number' ? accuracy : null,
+            link: `https://www.google.com/maps?q=${latitude},${longitude}`,
+          })
+        },
+        () => {
+          reject(new Error('Autorize a localização do aparelho para registrar o ponto.'))
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        }
+      )
+    })
+  }
+
+  function formatarCoordenada(valor) {
+    if (typeof valor !== 'number') return null
+    return valor.toFixed(6)
+  }
+
+  function obterLocalizacaoRegistro(registro) {
+    const latitude = typeof registro?.latitude === 'number'
+      ? registro.latitude
+      : Number(registro?.latitude)
+
+    const longitude = typeof registro?.longitude === 'number'
+      ? registro.longitude
+      : Number(registro?.longitude)
+
+    if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+      return {
+        texto: 'Não registrada',
+        link: '',
+        precisao: '',
+      }
+    }
+
+    const precisao = registro?.precisao_localizacao
+      ? `Precisão: ${Math.round(Number(registro.precisao_localizacao))}m`
+      : ''
+
+    return {
+      texto: `${formatarCoordenada(latitude)}, ${formatarCoordenada(longitude)}`,
+      link: registro?.link_localizacao || `https://www.google.com/maps?q=${latitude},${longitude}`,
+      precisao,
+    }
+  }
+
+  function localizacaoParaHTML(localizacao) {
+    if (!localizacao || !localizacao.link) return 'Não registrada'
+
+    return `<a href="${localizacao.link}" target="_blank">Ver no mapa</a><br/><small>${localizacao.texto}${localizacao.precisao ? ' - ' + localizacao.precisao : ''}</small>`
+  }
+
   async function login() {
     if (email.trim().toLowerCase() === 'programador@lc.com' && senha === '@Lc135910#') {
       setUsuarioLogado({
@@ -698,6 +772,17 @@ setNovoFazAlmoco(true)
     return
   }
 
+  let localizacaoPonto
+
+  try {
+    mostrarMensagem('Autorize a localização para registrar o ponto.')
+    localizacaoPonto = await obterLocalizacaoObrigatoria()
+  } catch (erro) {
+    mostrarMensagem(erro.message || 'Localização obrigatória. Autorize a localização do aparelho para bater o ponto.')
+    setRegistrandoPonto(false)
+    return
+  }
+
   const dataOficialISO = formatarDataISO(horarioOficial)
   const horaOficialBR = formatarHoraBR(horarioOficial)
   const dataJornadaISO = obterDataJornadaISO(usuarioLogado.id, dataOficialISO, horaOficialBR)
@@ -769,6 +854,10 @@ setNovoFazAlmoco(true)
         data_iso: dataJornadaISO,
         hora: horaOficialBR,
         tipo,
+        latitude: localizacaoPonto.latitude,
+        longitude: localizacaoPonto.longitude,
+        precisao_localizacao: localizacaoPonto.precisao,
+        link_localizacao: localizacaoPonto.link,
       },
     ])
     .select('*')
@@ -799,7 +888,7 @@ setNovoFazAlmoco(true)
 
     await registrarAuditoria(
       'REGISTRAR_PONTO',
-      `${usuarioLogado.nome} registrou ${tipo} às ${horaOficialBR} na jornada de ${dataJornadaBR}.`
+      `${usuarioLogado.nome} registrou ${tipo} às ${horaOficialBR} na jornada de ${dataJornadaBR}. Localização: ${localizacaoPonto.link}`
     )
     setRegistrandoPonto(false)
     mostrarMensagem(`✅ ${tipo} registrada com horário oficial!`)
@@ -983,6 +1072,11 @@ function criarLinhaJornada(registro) {
     ultimoPontoTipo: '',
     ultimoPontoHora: '',
     ultimoPontoTimestamp: 0,
+    ultimoPontoLocalizacao: null,
+    localizacaoEntrada: null,
+    localizacaoSaidaAlmoco: null,
+    localizacaoVoltaAlmoco: null,
+    localizacaoSaida: null,
     faz_almoco: usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.faz_almoco !== false,
   }
 }
@@ -991,16 +1085,33 @@ function preencherLinhaJornada(linha, registro) {
   const tipo = normalizarTipoPonto(registro.tipo)
   const hora = formatarHoraServidor(registro.registrado_em, registro.hora)
   const timestamp = obterTimestampRegistro(registro)
+  const localizacao = obterLocalizacaoRegistro(registro)
 
-  if (tipo === 'Entrada') linha.entrada = hora
-  if (tipo === 'Saída Almoço') linha.saidaAlmoco = hora
-  if (tipo === 'Volta Almoço') linha.voltaAlmoco = hora
-  if (tipo === 'Saída') linha.saida = hora
+  if (tipo === 'Entrada') {
+    linha.entrada = hora
+    linha.localizacaoEntrada = localizacao
+  }
+
+  if (tipo === 'Saída Almoço') {
+    linha.saidaAlmoco = hora
+    linha.localizacaoSaidaAlmoco = localizacao
+  }
+
+  if (tipo === 'Volta Almoço') {
+    linha.voltaAlmoco = hora
+    linha.localizacaoVoltaAlmoco = localizacao
+  }
+
+  if (tipo === 'Saída') {
+    linha.saida = hora
+    linha.localizacaoSaida = localizacao
+  }
 
   if (timestamp >= (linha.ultimoPontoTimestamp || 0)) {
     linha.ultimoPontoTimestamp = timestamp
     linha.ultimoPontoTipo = tipo
     linha.ultimoPontoHora = hora
+    linha.ultimoPontoLocalizacao = localizacao
   }
 }
 
@@ -1225,6 +1336,7 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
             <th>Saída almoço</th>
             <th>Volta almoço</th>
             <th>Saída casa</th>
+            <th>Localização</th>
             <th>Status</th>
           </tr>
   `
@@ -1239,6 +1351,7 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
         <td>${r.saidaAlmoco || '-'}</td>
         <td>${r.voltaAlmoco || '-'}</td>
         <td>${horaComVirada(r, 'saida')}</td>
+        <td>${localizacaoParaHTML(r.ultimoPontoLocalizacao)}</td>
         <td>${r.status}</td>
       </tr>
     `
@@ -1369,6 +1482,7 @@ function exportarRelatorioMensalPDF() {
             <th>Saída almoço</th>
             <th>Volta almoço</th>
             <th>Saída casa</th>
+            <th>Localização</th>
             <th>Status</th>
           </tr>
     `
@@ -1381,6 +1495,7 @@ function exportarRelatorioMensalPDF() {
           <td>${dia.saidaAlmoco || '-'}</td>
           <td>${dia.voltaAlmoco || '-'}</td>
           <td>${horaComVirada(dia, 'saida')}</td>
+          <td>${localizacaoParaHTML(dia.ultimoPontoLocalizacao)}</td>
           <td>${dia.status}</td>
         </tr>
       `
@@ -1538,6 +1653,7 @@ function historicoFuncionarioHoje() {
       tipo: p.tipo,
       data: p.data,
       hora: formatarHoraServidor(p.registrado_em, p.hora),
+      localizacao: obterLocalizacaoRegistro(p),
     }))
     .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''))
 }
@@ -2374,6 +2490,14 @@ faz_almoco: editFazAlmoco,
                                                 <span style={{ color: '#0757d8', fontWeight: 'bold' }}>
                                                   Último ponto: {r.ultimoPontoTipo || '-'} {r.ultimoPontoHora ? `às ${r.ultimoPontoHora}` : ''}
                                                 </span>
+                                                <br />
+                                                {r.ultimoPontoLocalizacao?.link ? (
+                                                  <a href={r.ultimoPontoLocalizacao.link} target="_blank" rel="noreferrer" style={{ color: '#0f766e', fontWeight: 'bold' }}>
+                                                    📍 Ver localização do último ponto
+                                                  </a>
+                                                ) : (
+                                                  <span style={{ color: '#991b1b' }}>📍 Localização não registrada</span>
+                                                )}
                                               </div>
                                               <span
                                                 style={{
@@ -2550,7 +2674,7 @@ faz_almoco: editFazAlmoco,
                                             style={{
                                               width: '100%',
                                               borderCollapse: 'collapse',
-                                              minWidth: '720px',
+                                              minWidth: '860px',
                                               fontSize: '14px',
                                             }}
                                           >
@@ -2561,6 +2685,7 @@ faz_almoco: editFazAlmoco,
                                                 <th style={{ padding: '10px', textAlign: 'left' }}>Saída almoço</th>
                                                 <th style={{ padding: '10px', textAlign: 'left' }}>Volta almoço</th>
                                                 <th style={{ padding: '10px', textAlign: 'left' }}>Saída casa</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Localização</th>
                                                 <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
                                               </tr>
                                             </thead>
@@ -2572,6 +2697,13 @@ faz_almoco: editFazAlmoco,
                                                   <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.saidaAlmoco || '-'}</td>
                                                   <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.voltaAlmoco || '-'}</td>
                                                   <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{horaComVirada(dia, 'saida')}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>
+                                                    {dia.ultimoPontoLocalizacao?.link ? (
+                                                      <a href={dia.ultimoPontoLocalizacao.link} target="_blank" rel="noreferrer" style={{ color: '#0f766e', fontWeight: 'bold' }}>Ver mapa</a>
+                                                    ) : (
+                                                      'Não registrada'
+                                                    )}
+                                                  </td>
                                                   <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.status}</td>
                                                 </tr>
                                               ))}
@@ -2623,6 +2755,8 @@ faz_almoco: editFazAlmoco,
                         </h1>
                         <p style={{ color: '#dbeafe', margin: 0, fontSize: '17px' }}>
                           Próximo registro: <strong style={{ color: '#fff' }}>{obterProximoPontoFuncionario()}</strong>
+                          <br />
+                          <span style={{ fontSize: '14px' }}>A localização do aparelho será obrigatória.</span>
                         </p>
                       </div>
 
@@ -2658,7 +2792,7 @@ faz_almoco: editFazAlmoco,
                       onClick={registrarPonto}
                       disabled={registrandoPonto || obterProximoPontoFuncionario() === 'Jornada completa'}
                     >
-                      {registrandoPonto ? 'Consultando horário oficial...' : obterProximoPontoFuncionario() === 'Jornada completa' ? 'Jornada completa hoje' : 'Registrar Ponto'}
+                      {registrandoPonto ? 'Consultando horário e localização...' : obterProximoPontoFuncionario() === 'Jornada completa' ? 'Jornada completa hoje' : 'Registrar Ponto'}
                     </button>
                   </div>
 
@@ -2693,6 +2827,14 @@ faz_almoco: editFazAlmoco,
                             <strong>{registro.tipo}</strong>
                             <br />
                             <span style={{ color: '#586174' }}>{registro.data}</span>
+                            <br />
+                            {registro.localizacao?.link ? (
+                              <a href={registro.localizacao.link} target="_blank" rel="noreferrer" style={{ color: '#0f766e', fontWeight: 'bold' }}>
+                                📍 Ver localização
+                              </a>
+                            ) : (
+                              <span style={{ color: '#991b1b' }}>📍 Localização não registrada</span>
+                            )}
                           </div>
                           <strong style={{ color: '#0757d8', fontSize: '20px' }}>{registro.hora || '-'}</strong>
                         </div>
