@@ -44,6 +44,8 @@ const [mostrarAuditoria, setMostrarAuditoria] = useState(false)
 const [buscaAuditoria, setBuscaAuditoria] = useState('')
 const [dataInicioAuditoria, setDataInicioAuditoria] = useState('')
 const [dataFimAuditoria, setDataFimAuditoria] = useState('')
+const [mostrarAvisoLegalLogado, setMostrarAvisoLegalLogado] = useState(false)
+const [mostrarTermoResponsabilidade, setMostrarTermoResponsabilidade] = useState(false)
   const [dataRelatorio, setDataRelatorio] = useState(formatarDataISO(new Date()))
   const [mesRelatorioMensal, setMesRelatorioMensal] = useState(formatarMesISO(new Date()))
   const [funcionarioRelatorioMensal, setFuncionarioRelatorioMensal] = useState('todos')
@@ -157,6 +159,25 @@ useEffect(() => {
   verificarLocalizacaoFuncionario()
 }, [usuarioLogado])
 
+useEffect(() => {
+  if (!usuarioLogado) {
+    setMostrarAvisoLegalLogado(false)
+    setMostrarTermoResponsabilidade(false)
+    return
+  }
+
+  const termoJaAceito = localStorage.getItem('termoResponsabilidadeAceito_v1') === 'true'
+
+  if (!termoJaAceito) {
+    setMostrarTermoResponsabilidade(true)
+    setMostrarAvisoLegalLogado(false)
+    return
+  }
+
+  setMostrarTermoResponsabilidade(false)
+  setMostrarAvisoLegalLogado(true)
+}, [usuarioLogado])
+
   function mostrarMensagem(texto) {
     setMensagem(texto)
     setTimeout(() => setMensagem(''), 4000)
@@ -251,6 +272,9 @@ useEffect(() => {
 
     html += `
           </table>
+          <div style="margin-top:25px;font-size:11px;color:#555;text-align:center;">
+            Sistema auxiliar de organização interna de jornada. Não é REP/registrador eletrônico oficial e não substitui obrigações legais, fiscais, trabalhistas ou contábeis da empresa.
+          </div>
           <div class="rodape">DEVELOPED BY DINHO OLIVEIRA</div>
         </body>
       </html>
@@ -711,6 +735,31 @@ if (salvarLogin) {
 
 }
 
+  async function aceitarTermoResponsabilidade() {
+    localStorage.setItem('termoResponsabilidadeAceito_v1', 'true')
+    localStorage.setItem(
+      'termoResponsabilidadeDados_v1',
+      JSON.stringify({
+        usuario: usuarioLogado?.nome || usuarioLogado?.email || 'Usuário',
+        tipo_usuario: usuarioLogado?.tipo || '',
+        empresa_id: usuarioLogado?.empresa_id || null,
+        data_hora: new Date().toISOString(),
+        versao: 'v1',
+      })
+    )
+
+    setMostrarTermoResponsabilidade(false)
+    setMostrarAvisoLegalLogado(true)
+
+    await registrarAuditoria(
+      'ACEITE_TERMO_RESPONSABILIDADE',
+      'Usuário aceitou o termo de responsabilidade e ciência de uso auxiliar interno do sistema.'
+    )
+
+    mostrarMensagem('Termo aceito. Sistema liberado para uso.')
+  }
+
+
   async function criarEmpresa() {
     if (!novaEmpresa || !emailMasterEmpresa || !senhaMasterEmpresa) {
       mostrarMensagem('Preencha nome da empresa, e-mail master e senha master.')
@@ -960,6 +1009,36 @@ setNovoFazAlmoco(true)
       return
     }
 
+  }
+
+  const MINUTOS_MINIMOS_ENTRE_PONTOS = 10
+  const ultimoRegistroJornada = [...registrosJornada].sort(
+    (a, b) => obterTimestampRegistro(b) - obterTimestampRegistro(a)
+  )[0]
+
+  if (ultimoRegistroJornada) {
+    const timestampUltimoRegistro = obterTimestampRegistro(ultimoRegistroJornada)
+    const diferencaMinutos = Math.floor((horarioOficial.getTime() - timestampUltimoRegistro) / 60000)
+
+    if (diferencaMinutos >= 0 && diferencaMinutos < MINUTOS_MINIMOS_ENTRE_PONTOS) {
+      const tipoAnterior = normalizarTipoPonto(ultimoRegistroJornada.tipo)
+      const horaAnterior = formatarHoraServidor(ultimoRegistroJornada.registrado_em, ultimoRegistroJornada.hora)
+
+      const confirmarIntervaloCurto = confirm(
+        `Atenção: o último ponto foi ${tipoAnterior} às ${horaAnterior}, há apenas ${diferencaMinutos} minuto(s).\n\nO próximo registro será ${tipo}.\n\nConfirma que deseja registrar mesmo assim?`
+      )
+
+      if (!confirmarIntervaloCurto) {
+        mostrarMensagem('Registro cancelado. Aguarde mais alguns minutos antes de bater o próximo ponto.')
+        setRegistrandoPonto(false)
+        return
+      }
+
+      await registrarAuditoria(
+        'ALERTA_INTERVALO_CURTO',
+        `${usuarioLogado.nome} confirmou ${tipo} apenas ${diferencaMinutos} minuto(s) após ${tipoAnterior} (${horaAnterior}).`
+      )
+    }
   }
 
   const { data: pontoInserido, error } = await supabase
@@ -1480,6 +1559,10 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
 
         </table>
 
+        <div style="margin-top:25px;font-size:11px;color:#555;text-align:center;">
+          Sistema auxiliar de organização interna de jornada. Não é REP/registrador eletrônico oficial e não substitui obrigações legais, fiscais, trabalhistas ou contábeis da empresa.
+        </div>
+
         <div class="rodape">
           DEVELOPED BY DINHO OLIVEIRA
         </div>
@@ -1627,6 +1710,10 @@ function exportarRelatorioMensalPDF() {
   })
 
   html += `
+        <div style="margin-top:25px;font-size:11px;color:#555;text-align:center;">
+          Sistema auxiliar de organização interna de jornada. Não é REP/registrador eletrônico oficial e não substitui obrigações legais, fiscais, trabalhistas ou contábeis da empresa.
+        </div>
+
         <div class="rodape">
           DEVELOPED BY DINHO OLIVEIRA
         </div>
@@ -1724,6 +1811,20 @@ function exportarRelatorioMensalPDF() {
     padding: '26px',
     boxShadow: '0 18px 42px rgba(0, 70, 199, 0.28)',
   }
+
+  const avisoLegalStyle = {
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+    color: '#7c2d12',
+    padding: '16px',
+    borderRadius: '18px',
+    fontSize: '14px',
+    lineHeight: '1.45',
+    marginTop: '16px',
+    textAlign: 'left',
+  }
+
+  const avisoLegalTexto = 'Sistema auxiliar de organização interna de registros de jornada. Este sistema não é REP, REP-C, REP-A ou REP-P oficial, não substitui obrigações trabalhistas, fiscais, contábeis ou legais da empresa e deve ser usado apenas como ferramenta de apoio administrativo. A responsabilidade pela conferência, uso dos dados, cumprimento da legislação, guarda de documentos e orientação jurídica/contábil é da empresa contratante.'
 
 
 function obterProximoPontoFuncionario() {
@@ -2000,7 +2101,7 @@ faz_almoco: editFazAlmoco,
               ↪ Entrar
             </button>
 
-            <p style={{ color: '#1d5fbf', fontSize: '14px', marginTop: '80px' }}>
+            <p style={{ color: '#1d5fbf', fontSize: '14px', marginTop: '32px' }}>
               Seguro • Rápido • Confiável
             </p>
           </>
@@ -2056,6 +2157,112 @@ faz_almoco: editFazAlmoco,
             </div>
 
             <div style={{ padding: '24px' }}>
+              {mostrarAvisoLegalLogado && (
+                <div style={{ ...avisoLegalStyle, marginTop: 0, marginBottom: '22px', position: 'relative' }}>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarAvisoLegalLogado(false)}
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      border: 'none',
+                      background: '#fed7aa',
+                      color: '#7c2d12',
+                      borderRadius: '999px',
+                      padding: '6px 10px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Li e concordo
+                  </button>
+
+                  <strong>Uso do sistema:</strong><br />
+                  <span style={{ display: 'block', paddingRight: '76px' }}>
+                    {avisoLegalTexto}
+                  </span>
+                </div>
+              )}
+
+              {mostrarTermoResponsabilidade && (
+                <div
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(15, 23, 42, 0.72)',
+                    zIndex: 9999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '18px',
+                  }}
+                >
+                  <div
+                    style={{
+                      background: '#ffffff',
+                      width: '100%',
+                      maxWidth: '720px',
+                      borderRadius: '24px',
+                      padding: '26px',
+                      boxShadow: '0 30px 90px rgba(0,0,0,0.35)',
+                      textAlign: 'left',
+                      border: '1px solid #fed7aa',
+                    }}
+                  >
+                    <h2 style={{ color: '#071638', marginTop: 0 }}>
+                      Termo de responsabilidade e uso do sistema
+                    </h2>
+
+                    <div
+                      style={{
+                        background: '#fff7ed',
+                        border: '1px solid #fed7aa',
+                        color: '#7c2d12',
+                        padding: '18px',
+                        borderRadius: '18px',
+                        lineHeight: '1.55',
+                        fontSize: '15px',
+                        marginBottom: '18px',
+                      }}
+                    >
+                      <strong>Antes de continuar, leia e aceite:</strong>
+                      <br />
+                      {avisoLegalTexto}
+                      <br /><br />
+                      Ao clicar em <strong>Li e aceito os termos</strong>, o usuário declara ciência de que o sistema é apenas uma ferramenta auxiliar de organização interna, e que a responsabilidade pela conferência, guarda e uso legal dos dados é da empresa contratante.
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <button
+                        type="button"
+                        onClick={sair}
+                        style={{
+                          ...buttonStyle,
+                          background: '#6b7280',
+                          marginBottom: 0,
+                        }}
+                      >
+                        Sair
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={aceitarTermoResponsabilidade}
+                        style={{
+                          ...buttonStyle,
+                          background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                          marginBottom: 0,
+                        }}
+                      >
+                        Li e aceito os termos
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+
               {usuarioLogado.tipo === 'programador' && (
                 <>
                   <div style={sectionStyle}>
@@ -2993,9 +3200,14 @@ faz_almoco: editFazAlmoco,
           </>
         )}
 
-        <p style={{ color: '#666', letterSpacing: '2px', fontSize: '11px', paddingBottom: usuarioLogado ? '20px' : 0 }}>
-          DEVELOPED BY DINHO OLIVEIRA
-        </p>
+        <div style={{ padding: usuarioLogado ? '0 20px 20px' : '0' }}>
+          <p style={{ color: '#64748b', fontSize: '12px', margin: '10px auto', maxWidth: '780px', lineHeight: '1.45' }}>
+            Sistema auxiliar de organização interna. Não é ponto eletrônico oficial/REP e não substitui obrigações legais da empresa.
+          </p>
+          <p style={{ color: '#666', letterSpacing: '2px', fontSize: '11px', margin: 0 }}>
+            DEVELOPED BY DINHO OLIVEIRA
+          </p>
+        </div>
       </div>
     </div>
   )
