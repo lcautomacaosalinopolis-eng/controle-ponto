@@ -610,51 +610,27 @@ useEffect(() => {
   }
 
   async function login() {
-    if (email.trim().toLowerCase() === 'programador@lc.com' && senha === '@Lc135910#') {
-      setUsuarioLogado({
-        nome: 'PROGRAMADOR',
-        tipo: 'programador',
-        email: 'programador@lc.com',
-        empresa_id: null,
-      })
-if (salvarLogin) {
+    const emailDigitado = email.trim().toLowerCase()
+    const senhaDigitada = senha
 
-  localStorage.setItem(
-    'loginSalvo',
-    JSON.stringify({
-      email,
-      senha,
-    })
-  )
-
-} else {
-
-  localStorage.removeItem(
-    'loginSalvo'
-  )
-
-}
-      await registrarAuditoria(
-        'LOGIN_PROGRAMADOR',
-        'Login realizado no painel do programador.',
-        {
-          nome: 'PROGRAMADOR',
-          tipo: 'programador',
-          email: 'programador@lc.com',
-          empresa_id: null,
-        }
-      )
-
-      setEmail('')
-      setSenha('')
-      mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
-      return
+    const salvarOuRemoverLogin = () => {
+      if (salvarLogin) {
+        localStorage.setItem(
+          'loginSalvo',
+          JSON.stringify({
+            email,
+            senha,
+          })
+        )
+      } else {
+        localStorage.removeItem('loginSalvo')
+      }
     }
 
     const empresaMaster = empresas.find(
       (empresa) =>
-        empresa.email_master?.toLowerCase() === email.trim().toLowerCase() &&
-        empresa.senha_master === senha &&
+        empresa.email_master?.toLowerCase() === emailDigitado &&
+        empresa.senha_master === senhaDigitada &&
         empresa.ativo !== false
     )
 
@@ -666,6 +642,9 @@ if (salvarLogin) {
         empresa_id: empresaMaster.id,
         empresa_nome: empresaMaster.nome,
       })
+
+      salvarOuRemoverLogin()
+
       await registrarAuditoria(
         'LOGIN_MASTER',
         `Login master realizado na empresa ${empresaMaster.nome}.`,
@@ -685,7 +664,7 @@ if (salvarLogin) {
     }
 
     const usuario = usuarios.find(
-      (u) => u.email?.toLowerCase() === email.trim().toLowerCase() && u.senha === senha
+      (u) => u.email?.toLowerCase() === emailDigitado && u.senha === senhaDigitada
     )
 
     if (!usuario) {
@@ -695,6 +674,31 @@ if (salvarLogin) {
 
     if (usuario.ativo === false) {
       mostrarMensagem('Usuário bloqueado.')
+      return
+    }
+
+    salvarOuRemoverLogin()
+
+    if (usuario.tipo === 'programador') {
+      const usuarioProgramador = {
+        ...usuario,
+        nome: usuario.nome || 'PROGRAMADOR',
+        tipo: 'programador',
+        empresa_id: null,
+      }
+
+      setUsuarioLogado(usuarioProgramador)
+      setEmpresaSelecionada(null)
+
+      await registrarAuditoria(
+        'LOGIN_PROGRAMADOR',
+        'Login realizado no painel do programador.',
+        usuarioProgramador
+      )
+
+      setEmail('')
+      setSenha('')
+      mostrarMensagem('Login PROGRAMADOR realizado com sucesso.')
       return
     }
 
