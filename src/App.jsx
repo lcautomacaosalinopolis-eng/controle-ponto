@@ -13,6 +13,7 @@ function App() {
   const [novaEmpresa, setNovaEmpresa] = useState('')
   const [emailMasterEmpresa, setEmailMasterEmpresa] = useState('')
   const [senhaMasterEmpresa, setSenhaMasterEmpresa] = useState('')
+  const [registrandoPonto, setRegistrandoPonto] = useState(false)
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
@@ -28,8 +29,10 @@ const [editSenha, setEditSenha] = useState('')
 const [editFazAlmoco, setEditFazAlmoco] = useState(true)
 const [mostrarFuncionarios, setMostrarFuncionarios] = useState(false)
 const [buscaFuncionario, setBuscaFuncionario] = useState('')
-  const [dataRelatorio, setDataRelatorio] = useState(new Date().toISOString().split('T')[0])
-  const [mesRelatorioMensal, setMesRelatorioMensal] = useState(new Date().toISOString().slice(0, 7))
+const [mostrarHistoricoDia, setMostrarHistoricoDia] = useState(false)
+const [mostrarRelatorioMensal, setMostrarRelatorioMensal] = useState(false)
+  const [dataRelatorio, setDataRelatorio] = useState(formatarDataISO(new Date()))
+  const [mesRelatorioMensal, setMesRelatorioMensal] = useState(formatarMesISO(new Date()))
   const [funcionarioRelatorioMensal, setFuncionarioRelatorioMensal] = useState('todos')
   const [horaInicioRelatorioMensal, setHoraInicioRelatorioMensal] = useState('')
   const [horaFimRelatorioMensal, setHoraFimRelatorioMensal] = useState('')
@@ -60,17 +63,6 @@ const [buscaFuncionario, setBuscaFuncionario] = useState('')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, async () => carregarUsuarios())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'empresas' }, async () => carregarEmpresas())
       .subscribe()
-function abrirEdicaoFuncionario(usuario) {
-
-  setFuncionarioEditando(usuario)
-
-  setEditNome(usuario.nome)
-
-  setEditEmail(usuario.email)
-
-  setEditSenha(usuario.senha)
-
-}
 
 return () => {
   supabase.removeChannel(canal)
@@ -98,20 +90,93 @@ useEffect(() => {
     setTimeout(() => setMensagem(''), 4000)
   }
 
-  function hojeISO() {
-    return new Date().toISOString().split('T')[0]
+  function formatarDataISO(dataHora) {
+    const data = new Date(dataHora)
+
+    const partes = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(data)
+
+    const ano = partes.find((parte) => parte.type === 'year')?.value
+    const mes = partes.find((parte) => parte.type === 'month')?.value
+    const dia = partes.find((parte) => parte.type === 'day')?.value
+
+    return `${ano}-${mes}-${dia}`
   }
 
-  function hojeBR() {
-    return new Date().toLocaleDateString('pt-BR')
+  function formatarMesISO(dataHora) {
+    const dataISO = formatarDataISO(dataHora)
+    return dataISO.slice(0, 7)
   }
 
-  function horaAtual() {
-    return new Date().toLocaleTimeString('pt-BR', {
+  function formatarDataBR(dataHora) {
+    return new Date(dataHora).toLocaleDateString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+    })
+  }
+
+  function formatarHoraBR(dataHora) {
+    return new Date(dataHora).toLocaleTimeString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
     })
+  }
+
+  async function tentarBuscarHorario(url, extrairData) {
+    const resposta = await fetch(url, { cache: 'no-store' })
+
+    if (!resposta.ok) {
+      throw new Error('Falha ao consultar horário.')
+    }
+
+    const dados = await resposta.json()
+    const dataExtraida = extrairData(dados)
+    const data = new Date(dataExtraida)
+
+    if (!dataExtraida || Number.isNaN(data.getTime())) {
+      throw new Error('Horário inválido.')
+    }
+
+    return data
+  }
+
+  async function obterHorarioOficial() {
+    const consultas = [
+      () => tentarBuscarHorario(
+        'https://worldtimeapi.org/api/timezone/America/Sao_Paulo',
+        (dados) => dados.datetime
+      ),
+      () => tentarBuscarHorario(
+        'https://timeapi.io/api/TimeZone/zone?timeZone=America/Sao_Paulo',
+        (dados) => dados.currentLocalTime
+      ),
+    ]
+
+    for (const consulta of consultas) {
+      try {
+        return await consulta()
+      } catch (erro) {
+      }
+    }
+
+    throw new Error('Não foi possível consultar o horário oficial da internet.')
+  }
+
+  function hojeISO() {
+    return formatarDataISO(new Date())
+  }
+
+  function hojeBR() {
+    return formatarDataBR(new Date())
+  }
+
+  function horaAtual() {
+    return formatarHoraBR(new Date())
   }
 
   function formatarHoraServidor(dataHora, fallback) {
@@ -299,10 +364,28 @@ setNovoFazAlmoco(true)
 
  async function registrarPonto() {
 
+  if (registrandoPonto) return
+
+  setRegistrandoPonto(true)
+
+  let horarioOficial
+
+  try {
+    horarioOficial = await obterHorarioOficial()
+  } catch (erro) {
+    mostrarMensagem('Não foi possível consultar o horário oficial da internet. Verifique a conexão e tente novamente.')
+    setRegistrandoPonto(false)
+    return
+  }
+
+  const dataOficialISO = formatarDataISO(horarioOficial)
+  const dataOficialBR = formatarDataBR(horarioOficial)
+  const horaOficialBR = formatarHoraBR(horarioOficial)
+
   const registrosHoje = pontos.filter(
     (p) =>
       p.usuario_id === usuarioLogado.id &&
-      p.data_iso === hojeISO()
+      p.data_iso === dataOficialISO
   )
 
   const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
@@ -332,6 +415,7 @@ setNovoFazAlmoco(true)
 
     else {
       mostrarMensagem('Você já registrou todos os pontos de hoje.')
+      setRegistrandoPonto(false)
       return
     }
 
@@ -347,6 +431,7 @@ setNovoFazAlmoco(true)
 
     else {
       mostrarMensagem('Você já registrou entrada e saída hoje.')
+      setRegistrandoPonto(false)
       return
     }
 
@@ -357,19 +442,21 @@ setNovoFazAlmoco(true)
       usuario_id: usuarioLogado.id,
       empresa_id: usuarioLogado.empresa_id,
       nome: usuarioLogado.nome,
-      data: hojeBR(),
-      data_iso: hojeISO(),
-      hora: horaAtual(),
+      data: dataOficialBR,
+      data_iso: dataOficialISO,
+      hora: horaOficialBR,
       tipo,
     },
   ])
 
   if (error) {
     mostrarMensagem('Erro ao registrar ponto.')
+    setRegistrandoPonto(false)
     return
   }
     await carregarPontos()
-    mostrarMensagem(`✅ ${tipo} registrada com sucesso!`)
+    setRegistrandoPonto(false)
+    mostrarMensagem(`✅ ${tipo} registrada com horário oficial!`)
   }
 
   function empresasVisiveis() {
@@ -397,45 +484,72 @@ setNovoFazAlmoco(true)
   const agrupado = {}
 
   registros.forEach((r) => {
-    if (!agrupado[r.nome]) {
-  agrupado[r.nome] = {
-    entrada: '',
-    saidaAlmoco: '',
-    voltaAlmoco: '',
-    saida: '',
-    data: r.data,
-  }
-}
+    const chaveFuncionario = String(r.usuario_id || r.nome)
+
+    if (!agrupado[chaveFuncionario]) {
+      agrupado[chaveFuncionario] = {
+        nome: r.nome,
+        entrada: '',
+        saidaAlmoco: '',
+        voltaAlmoco: '',
+        saida: '',
+        data: r.data,
+      }
+    }
 
     if (r.tipo === 'Entrada') {
-      agrupado[r.nome].entrada = formatarHoraServidor(r.registrado_em, r.hora)
+      agrupado[chaveFuncionario].entrada = formatarHoraServidor(r.registrado_em, r.hora)
     }
 
     if (r.tipo === 'Saída Almoço') {
-      agrupado[r.nome].saidaAlmoco = formatarHoraServidor(r.registrado_em, r.hora)
+      agrupado[chaveFuncionario].saidaAlmoco = formatarHoraServidor(r.registrado_em, r.hora)
     }
 
     if (r.tipo === 'Volta Almoço') {
-      agrupado[r.nome].voltaAlmoco = formatarHoraServidor(r.registrado_em, r.hora)
+      agrupado[chaveFuncionario].voltaAlmoco = formatarHoraServidor(r.registrado_em, r.hora)
     }
 
     if (r.tipo === 'Saída') {
-      agrupado[r.nome].saida = formatarHoraServidor(r.registrado_em, r.hora)
+      agrupado[chaveFuncionario].saida = formatarHoraServidor(r.registrado_em, r.hora)
     }
   })
 
-  return Object.keys(agrupado).map((nome) => ({
-    nome,
-    data: agrupado[nome].data,
-    entrada: agrupado[nome].entrada,
-    saidaAlmoco: agrupado[nome].saidaAlmoco,
-    voltaAlmoco: agrupado[nome].voltaAlmoco,
-    saida: agrupado[nome].saida,
+  return Object.keys(agrupado).map((chaveFuncionario) => ({
+    nome: agrupado[chaveFuncionario].nome,
+    data: agrupado[chaveFuncionario].data,
+    entrada: agrupado[chaveFuncionario].entrada,
+    saidaAlmoco: agrupado[chaveFuncionario].saidaAlmoco,
+    voltaAlmoco: agrupado[chaveFuncionario].voltaAlmoco,
+    saida: agrupado[chaveFuncionario].saida,
     status:
-      agrupado[nome].entrada && agrupado[nome].saida
+      agrupado[chaveFuncionario].entrada && agrupado[chaveFuncionario].saida
         ? 'Completo'
         : 'Pendente',
   }))
+}
+
+function gerarHistoricoDia(empresaId = usuarioLogado?.empresa_id) {
+  const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
+
+  if (!idEmpresa || !dataRelatorio) return []
+
+  return pontos
+    .filter((p) => p.empresa_id === idEmpresa && p.data_iso === dataRelatorio)
+    .map((p) => ({
+      id: p.id,
+      usuario_id: p.usuario_id,
+      nome: p.nome,
+      data: p.data,
+      data_iso: p.data_iso,
+      tipo: p.tipo,
+      hora: formatarHoraServidor(p.registrado_em, p.hora),
+    }))
+    .sort((a, b) => {
+      const horaComparacao = (a.hora || '').localeCompare(b.hora || '')
+      if (horaComparacao !== 0) return horaComparacao
+
+      return (a.nome || '').localeCompare(b.nome || '')
+    })
 }
 
 function horaParaMinutos(hora) {
@@ -494,11 +608,13 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
 }
  function exportarRelatorioPDF() {
 
+  const idEmpresaPDF = empresaSelecionada || usuarioLogado?.empresa_id
+
   const empresaAtual = empresas.find(
-    (empresa) => empresa.id === empresaSelecionada
+    (empresa) => empresa.id === idEmpresaPDF
   )
 
-  const registros = gerarRelatorio(empresaSelecionada)
+  const registros = gerarRelatorio(idEmpresaPDF)
 
   const janela = window.open(
     '',
@@ -572,7 +688,9 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
             <th>Funcionário</th>
             <th>Data</th>
             <th>Entrada</th>
-            <th>Saída</th>
+            <th>Saída almoço</th>
+            <th>Volta almoço</th>
+            <th>Saída casa</th>
             <th>Status</th>
           </tr>
   `
@@ -584,6 +702,8 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
         <td>${r.nome}</td>
         <td>${r.data}</td>
         <td>${r.entrada || '-'}</td>
+        <td>${r.saidaAlmoco || '-'}</td>
+        <td>${r.voltaAlmoco || '-'}</td>
         <td>${r.saida || '-'}</td>
         <td>${r.status}</td>
       </tr>
@@ -616,48 +736,52 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
 }
 
   const containerStyle = {
-    maxWidth: usuarioLogado ? '1120px' : '430px',
-    margin: '24px auto',
+    maxWidth: usuarioLogado ? '1120px' : '440px',
+    margin: usuarioLogado ? '18px auto' : '26px auto',
     backgroundColor: '#ffffff',
-    padding: usuarioLogado ? '0' : '32px 24px',
-    borderRadius: '24px',
-    boxShadow: '0 18px 45px rgba(15, 23, 42, 0.12)',
+    padding: usuarioLogado ? '0' : '34px 24px',
+    borderRadius: usuarioLogado ? '28px' : '30px',
+    boxShadow: '0 24px 70px rgba(15, 23, 42, 0.16)',
     textAlign: 'center',
     overflow: 'hidden',
+    border: '1px solid rgba(219, 234, 254, 0.9)',
   }
 
   const inputStyle = {
     width: '100%',
     padding: '16px',
     marginBottom: '14px',
-    borderRadius: '14px',
-    border: '1px solid #d8dee9',
+    borderRadius: '16px',
+    border: '1px solid #d8e2f0',
     fontSize: '16px',
     boxSizing: 'border-box',
     outline: 'none',
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9)',
   }
 
   const buttonStyle = {
     width: '100%',
     padding: '16px 22px',
-    borderRadius: '14px',
+    borderRadius: '16px',
     border: 'none',
-    background: 'linear-gradient(180deg, #0b5cff 0%, #0046c7 100%)',
+    background: 'linear-gradient(135deg, #0b5cff 0%, #0046c7 100%)',
     color: '#fff',
     fontSize: '17px',
     fontWeight: 'bold',
     cursor: 'pointer',
     marginBottom: '14px',
-    boxShadow: '0 10px 24px rgba(0, 70, 199, 0.25)',
+    boxShadow: '0 12px 28px rgba(0, 70, 199, 0.28)',
+    transition: '0.2s ease',
   }
 
   const sectionStyle = {
-    background: '#ffffff',
-    borderRadius: '22px',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)',
+    borderRadius: '24px',
     padding: '24px',
     marginBottom: '22px',
-    boxShadow: '0 10px 28px rgba(15, 23, 42, 0.08)',
+    boxShadow: '0 12px 34px rgba(15, 23, 42, 0.08)',
+    border: '1px solid #e6edf7',
     textAlign: 'left',
   }
 
@@ -668,7 +792,76 @@ function gerarRelatorioMensal(empresaId = usuarioLogado?.empresa_id) {
     borderRadius: '18px',
     marginBottom: '14px',
     textAlign: 'left',
+    boxShadow: '0 6px 18px rgba(15, 23, 42, 0.04)',
   }
+
+  const chipStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+    background: '#eaf2ff',
+    color: '#0757d8',
+    padding: '8px 12px',
+    borderRadius: '999px',
+    fontSize: '13px',
+    fontWeight: 'bold',
+  }
+
+  const destaqueStyle = {
+    background: 'linear-gradient(135deg, #0757d8 0%, #003b9f 100%)',
+    color: '#fff',
+    borderRadius: '26px',
+    padding: '26px',
+    boxShadow: '0 18px 42px rgba(0, 70, 199, 0.28)',
+  }
+
+
+function obterProximoPontoFuncionario() {
+  if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') return 'Registrar Ponto'
+
+  const registrosHoje = pontos.filter(
+    (p) =>
+      p.usuario_id === usuarioLogado.id &&
+      p.data_iso === hojeISO()
+  )
+
+  const entrada = registrosHoje.find((p) => p.tipo === 'Entrada')
+  const saidaAlmoco = registrosHoje.find((p) => p.tipo === 'Saída Almoço')
+  const voltaAlmoco = registrosHoje.find((p) => p.tipo === 'Volta Almoço')
+  const saida = registrosHoje.find((p) => p.tipo === 'Saída')
+
+  if (usuarioLogado.faz_almoco) {
+    if (!entrada) return 'Entrada'
+    if (!saidaAlmoco) return 'Saída Almoço'
+    if (!voltaAlmoco) return 'Volta Almoço'
+    if (!saida) return 'Saída Casa'
+    return 'Jornada completa'
+  }
+
+  if (!entrada) return 'Entrada'
+  if (!saida) return 'Saída Casa'
+
+  return 'Jornada completa'
+}
+
+function historicoFuncionarioHoje() {
+  if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') return []
+
+  return pontos
+    .filter(
+      (p) =>
+        p.usuario_id === usuarioLogado.id &&
+        p.data_iso === hojeISO()
+    )
+    .map((p) => ({
+      id: p.id,
+      tipo: p.tipo,
+      data: p.data,
+      hora: formatarHoraServidor(p.registrado_em, p.hora),
+    }))
+    .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''))
+}
 
 function abrirEdicaoFuncionario(usuario) {
 
@@ -743,7 +936,7 @@ faz_almoco: editFazAlmoco,
 }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#eef4fb', padding: '18px' }}>
+    <div style={{ minHeight: '100vh', background: 'radial-gradient(circle at top, #dbeafe 0%, #eef4fb 42%, #f8fbff 100%)', padding: '18px' }}>
       <div style={containerStyle}>
         {mensagem && (
           <div
@@ -828,10 +1021,11 @@ faz_almoco: editFazAlmoco,
           <>
             <div
               style={{
-                background: 'linear-gradient(135deg, #0757d8 0%, #003b9f 100%)',
+                background: 'linear-gradient(135deg, #0757d8 0%, #003b9f 70%, #052a73 100%)',
                 color: '#fff',
-                padding: '28px',
+                padding: '30px',
                 textAlign: 'left',
+                boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.12)',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
@@ -1107,47 +1301,87 @@ faz_almoco: editFazAlmoco,
                   </div>
 
                   <div style={sectionStyle}>
-                    <h2 style={{ color: '#071638', marginTop: 0 }}>Relatório</h2>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        flexWrap: 'wrap',
+                        marginBottom: '14px',
+                      }}
+                    >
+                      <div>
+                        <h2 style={{ color: '#071638', margin: 0 }}>Histórico de Pontos do Dia</h2>
+                        <p style={{ color: '#586174', margin: '6px 0 0' }}>
+                          Clique na barra abaixo para abrir ou ocultar os registros do dia.
+                        </p>
+                      </div>
+                    </div>
 
                     <input type="date" style={inputStyle} value={dataRelatorio} onChange={(e) => setDataRelatorio(e.target.value)} />
 
-                    <button style={{ ...buttonStyle, background: '#16a34a' }} onClick={exportarRelatorioPDF}>
-                      Exportar PDF
-                    </button>
-
                     {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
-                      <p>Clique em uma empresa para visualizar o relatório.</p>
+                      <p>Clique em uma empresa para visualizar o histórico de pontos.</p>
                     )}
 
-                    {empresasVisiveis()
-                      .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
-                      .map((empresa) => (
-                        <div key={empresa.id}>
-                          {usuarioLogado.tipo === 'programador' && (
-                            <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
-                          )}
+                    {(usuarioLogado.tipo !== 'programador' || empresaSelecionada) && (
+                      <>
+                        <button
+                          style={{
+                            ...buttonStyle,
+                            background: mostrarHistoricoDia
+                              ? '#6b7280'
+                              : 'linear-gradient(180deg, #0b5cff 0%, #0046c7 100%)',
+                          }}
+                          onClick={() => setMostrarHistoricoDia(!mostrarHistoricoDia)}
+                        >
+                          {mostrarHistoricoDia ? '▲ Ocultar Histórico do Dia' : '▼ Ver Histórico de Pontos do Dia'}
+                        </button>
 
-                          {gerarRelatorio(empresa.id).map((r, index) => (
-                            <div key={`${empresa.id}-${index}`} style={cardStyle}>
-                              <strong>{r.nome}</strong>
-                              <br />
-                              Data: {r.data}
-                              <br />
-                              Entrada: {r.entrada || '-'}
-                              <br />
-                              Saída almoço: {r.saidaAlmoco || '-'}
-                              <br />
-                              Volta almoço: {r.voltaAlmoco || '-'}
-                              <br />
-                              Saída casa: {r.saida || '-'}
-                              <br />
-                              Status: {r.status}
-                            </div>
-                          ))}
-                        </div>
-                      ))}
+                        {mostrarHistoricoDia && (
+                          <>
+                            {empresasVisiveis()
+                              .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
+                              .map((empresa) => (
+                                <div key={empresa.id}>
+                                  {usuarioLogado.tipo === 'programador' && (
+                                    <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
+                                  )}
+
+                                  {gerarHistoricoDia(empresa.id).length === 0 ? (
+                                    <div style={cardStyle}>
+                                      Nenhum registro encontrado para esta data.
+                                    </div>
+                                  ) : (
+                                    <div
+                                      style={{
+                                        maxHeight: '520px',
+                                        overflowY: 'auto',
+                                        paddingRight: '6px',
+                                        borderRadius: '18px',
+                                      }}
+                                    >
+                                      {gerarHistoricoDia(empresa.id).map((r) => (
+                                        <div key={`${empresa.id}-${r.id}`} style={cardStyle}>
+                                          <strong>{r.nome}</strong>
+                                          <br />
+                                          Data: {r.data}
+                                          <br />
+                                          Horário: {r.hora || '-'}
+                                          <br />
+                                          Tipo: {r.tipo}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                          </>
+                        )}
+                      </>
+                    )}
                   </div>
-
                   <div style={sectionStyle}>
                     <h2 style={{ color: '#071638', marginTop: 0 }}>Relatório Mensal por Funcionário</h2>
                     <p style={{ color: '#586174', marginTop: 0 }}>
@@ -1212,49 +1446,176 @@ faz_almoco: editFazAlmoco,
                       <p>Clique em uma empresa para visualizar o relatório mensal.</p>
                     )}
 
-                    {empresasVisiveis()
-                      .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
-                      .map((empresa) => {
-                        const registrosMensais = gerarRelatorioMensal(empresa.id)
+                    {(usuarioLogado.tipo !== 'programador' || empresaSelecionada) && (
+                      <button
+                        style={{
+                          ...buttonStyle,
+                          background: mostrarRelatorioMensal
+                            ? '#6b7280'
+                            : 'linear-gradient(180deg, #0b5cff 0%, #0046c7 100%)',
+                        }}
+                        onClick={() => setMostrarRelatorioMensal(!mostrarRelatorioMensal)}
+                      >
+                        {mostrarRelatorioMensal ? '▲ Ocultar Relatório Mensal' : '▼ Ver Relatório Mensal'}
+                      </button>
+                    )}
 
-                        return (
-                          <div key={`mensal-${empresa.id}`}>
-                            {usuarioLogado.tipo === 'programador' && (
-                              <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
-                            )}
+                    {mostrarRelatorioMensal && (
+                      <>
+                        {empresasVisiveis()
+                          .filter((empresa) => (usuarioLogado.tipo === 'programador' ? empresa.id === empresaSelecionada : true))
+                          .map((empresa) => {
+                            const registrosMensais = gerarRelatorioMensal(empresa.id)
 
-                            {registrosMensais.length === 0 ? (
-                              <div style={cardStyle}>
-                                Nenhum registro encontrado para os filtros selecionados.
+                            return (
+                              <div key={`mensal-${empresa.id}`}>
+                                {usuarioLogado.tipo === 'programador' && (
+                                  <h2 style={{ color: '#001f6b' }}>Empresa: {empresa.nome}</h2>
+                                )}
+
+                                {registrosMensais.length === 0 ? (
+                                  <div style={cardStyle}>
+                                    Nenhum registro encontrado para os filtros selecionados.
+                                  </div>
+                                ) : (
+                                  <div
+                                    style={{
+                                      maxHeight: '520px',
+                                      overflowY: 'auto',
+                                      paddingRight: '6px',
+                                      borderRadius: '18px',
+                                    }}
+                                  >
+                                    {registrosMensais.map((r) => (
+                                      <div key={`mensal-${empresa.id}-${r.id}`} style={cardStyle}>
+                                        <strong>{r.nome}</strong>
+                                        <br />
+                                        Data: {r.data}
+                                        <br />
+                                        Horário: {r.hora || '-'}
+                                        <br />
+                                        Tipo: {r.tipo}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                            ) : (
-                              registrosMensais.map((r) => (
-                                <div key={`mensal-${empresa.id}-${r.id}`} style={cardStyle}>
-                                  <strong>{r.nome}</strong>
-                                  <br />
-                                  Data: {r.data}
-                                  <br />
-                                  Horário: {r.hora || '-'}
-                                  <br />
-                                  Tipo: {r.tipo}
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        )
-                      })}
+                            )
+                          })}
+                      </>
+                    )}
                   </div>
+                  <div style={sectionStyle}>
+                    <h2 style={{ color: '#071638', marginTop: 0 }}>Exportar Relatório em PDF</h2>
+                    <p style={{ color: '#586174', marginTop: 0 }}>
+                      Gere o PDF do relatório diário com entrada, almoço, volta do almoço e saída casa.
+                    </p>
+
+                    <input type="date" style={inputStyle} value={dataRelatorio} onChange={(e) => setDataRelatorio(e.target.value)} />
+
+                    {usuarioLogado.tipo === 'programador' && !empresaSelecionada && (
+                      <p>Clique em uma empresa para exportar o relatório em PDF.</p>
+                    )}
+
+                    {(usuarioLogado.tipo !== 'programador' || empresaSelecionada) && (
+                      <button style={{ ...buttonStyle, background: '#16a34a' }} onClick={exportarRelatorioPDF}>
+                        Exportar PDF
+                      </button>
+                    )}
+                  </div>
+
                 </>
               )}
 
               {usuarioLogado.tipo === 'funcionario' && (
-                <div style={sectionStyle}>
-                  <h1 style={{ color: '#071638', marginTop: 0 }}>Registrar Ponto</h1>
-                  <p style={{ color: '#586174' }}>Toque no botão abaixo para registrar seu horário.</p>
+                <div style={{ ...sectionStyle, padding: '0', overflow: 'hidden' }}>
+                  <div style={destaqueStyle}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ ...chipStyle, background: 'rgba(255,255,255,0.18)', color: '#fff' }}>
+                          ◷ Horário oficial da internet
+                        </div>
+                        <h1 style={{ color: '#fff', margin: '18px 0 8px', fontSize: '38px', lineHeight: '1.05' }}>
+                          Registrar Ponto
+                        </h1>
+                        <p style={{ color: '#dbeafe', margin: 0, fontSize: '17px' }}>
+                          Próximo registro: <strong style={{ color: '#fff' }}>{obterProximoPontoFuncionario()}</strong>
+                        </p>
+                      </div>
 
-                  <button style={{ ...buttonStyle, fontSize: '20px', padding: '22px' }} onClick={registrarPonto}>
-                    Registrar Ponto
-                  </button>
+                      <div
+                        style={{
+                          width: '86px',
+                          height: '86px',
+                          borderRadius: '28px',
+                          background: 'rgba(255,255,255,0.16)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '42px',
+                          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)',
+                        }}
+                      >
+                        🕒
+                      </div>
+                    </div>
+
+                    <button
+                      style={{
+                        ...buttonStyle,
+                        marginTop: '24px',
+                        marginBottom: 0,
+                        fontSize: '20px',
+                        padding: '22px',
+                        background: '#ffffff',
+                        color: '#0757d8',
+                        boxShadow: '0 14px 34px rgba(0,0,0,0.18)',
+                        opacity: registrandoPonto ? 0.75 : 1,
+                      }}
+                      onClick={registrarPonto}
+                      disabled={registrandoPonto || obterProximoPontoFuncionario() === 'Jornada completa'}
+                    >
+                      {registrandoPonto ? 'Consultando horário oficial...' : obterProximoPontoFuncionario() === 'Jornada completa' ? 'Jornada completa hoje' : 'Registrar Ponto'}
+                    </button>
+                  </div>
+
+                  <div style={{ padding: '22px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                      <div>
+                        <h2 style={{ color: '#071638', margin: 0 }}>Meus pontos de hoje</h2>
+                        <p style={{ color: '#586174', margin: '6px 0 0' }}>
+                          Acompanhe os registros feitos neste aparelho.
+                        </p>
+                      </div>
+                      <span style={chipStyle}>{historicoFuncionarioHoje().length} registros</span>
+                    </div>
+
+                    {historicoFuncionarioHoje().length === 0 ? (
+                      <div style={cardStyle}>
+                        Nenhum ponto registrado hoje.
+                      </div>
+                    ) : (
+                      historicoFuncionarioHoje().map((registro) => (
+                        <div
+                          key={`func-dia-${registro.id}`}
+                          style={{
+                            ...cardStyle,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                          }}
+                        >
+                          <div>
+                            <strong>{registro.tipo}</strong>
+                            <br />
+                            <span style={{ color: '#586174' }}>{registro.data}</span>
+                          </div>
+                          <strong style={{ color: '#0757d8', fontSize: '20px' }}>{registro.hora || '-'}</strong>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </div>
