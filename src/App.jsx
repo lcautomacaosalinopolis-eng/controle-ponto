@@ -21,6 +21,7 @@ function App() {
   const [registrandoPonto, setRegistrandoPonto] = useState(false)
   const [localizacaoAutorizada, setLocalizacaoAutorizada] = useState(false)
   const [solicitandoLocalizacao, setSolicitandoLocalizacao] = useState(false)
+  const [localizacaoBloqueada, setLocalizacaoBloqueada] = useState(false)
   const [novoNome, setNovoNome] = useState('')
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
@@ -153,6 +154,7 @@ useEffect(() => {
   if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') {
     setLocalizacaoAutorizada(false)
     setSolicitandoLocalizacao(false)
+    setLocalizacaoBloqueada(false)
     return
   }
 
@@ -503,29 +505,52 @@ useEffect(() => {
     return Number.isNaN(timestampFallback) ? 0 : timestampFallback
   }
 
+  async function obterEstadoPermissaoLocalizacao() {
+    if (!navigator.permissions?.query) return 'desconhecido'
+
+    try {
+      const permissao = await navigator.permissions.query({ name: 'geolocation' })
+      return permissao.state
+    } catch (erro) {
+      return 'desconhecido'
+    }
+  }
+
+  function mostrarOrientacaoLocalizacaoBloqueada() {
+    const texto = 'A localização está bloqueada neste navegador. Para liberar: toque no cadeado/ícone de ajustes ao lado do endereço do site, abra Permissões do site, mude Localização para Permitir e depois volte para o sistema e clique novamente no botão amarelo.'
+
+    mostrarMensagem('Localização bloqueada. Libere nas permissões do site e tente novamente.')
+
+    setTimeout(() => {
+      alert(texto)
+    }, 150)
+  }
+
   async function verificarLocalizacaoFuncionario(forcarPedido = true) {
     if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') return
 
     if (!navigator.geolocation) {
       setLocalizacaoAutorizada(false)
+      setLocalizacaoBloqueada(true)
       mostrarMensagem('Este aparelho ou navegador não suporta localização. Use um aparelho com GPS para bater ponto.')
       return
     }
 
-    if (!forcarPedido && navigator.permissions?.query) {
-      try {
-        const permissao = await navigator.permissions.query({ name: 'geolocation' })
+    const estadoPermissao = await obterEstadoPermissaoLocalizacao()
 
-        if (permissao.state !== 'granted') {
-          setLocalizacaoAutorizada(false)
-          setSolicitandoLocalizacao(false)
-          return
-        }
-      } catch (erro) {
-        setLocalizacaoAutorizada(false)
-        setSolicitandoLocalizacao(false)
-        return
-      }
+    if (!forcarPedido && estadoPermissao !== 'granted') {
+      setLocalizacaoAutorizada(false)
+      setSolicitandoLocalizacao(false)
+      setLocalizacaoBloqueada(estadoPermissao === 'denied')
+      return
+    }
+
+    if (forcarPedido && estadoPermissao === 'denied') {
+      setLocalizacaoAutorizada(false)
+      setSolicitandoLocalizacao(false)
+      setLocalizacaoBloqueada(true)
+      mostrarOrientacaoLocalizacaoBloqueada()
+      return
     }
 
     setSolicitandoLocalizacao(true)
@@ -533,12 +558,17 @@ useEffect(() => {
     try {
       await obterLocalizacaoObrigatoria(true)
       setLocalizacaoAutorizada(true)
+      setLocalizacaoBloqueada(false)
       mostrarMensagem('Localização autorizada. Agora você pode bater o ponto.')
     } catch (erro) {
       setLocalizacaoAutorizada(false)
-      mostrarMensagem(
-        'Localização recusada. Clique novamente em permitir localização. Se o navegador bloqueou, abra as permissões do site e libere a localização.'
-      )
+      setLocalizacaoBloqueada(erro?.code === 1 || erro?.code === 'PERMISSION_DENIED')
+
+      if (erro?.code === 1 || erro?.code === 'PERMISSION_DENIED') {
+        mostrarOrientacaoLocalizacaoBloqueada()
+      } else {
+        mostrarMensagem(erro.message || 'Não foi possível obter a localização. Tente novamente.')
+      }
     } finally {
       setSolicitandoLocalizacao(false)
     }
@@ -576,9 +606,14 @@ useEffect(() => {
             link: `https://www.google.com/maps?q=${latitude},${longitude}`,
           })
         },
-        () => {
+        (erroGeolocalizacao) => {
           if (atualizarEstado) setLocalizacaoAutorizada(false)
-          reject(new Error('Autorize a localização do aparelho para registrar o ponto.'))
+
+          const erroPermissao = new Error('Autorize a localização do aparelho para registrar o ponto.')
+          erroPermissao.code = erroGeolocalizacao?.code
+          erroPermissao.original = erroGeolocalizacao
+
+          reject(erroPermissao)
         },
         {
           enableHighAccuracy: true,
@@ -3218,7 +3253,7 @@ faz_almoco: editFazAlmoco,
                         onClick={() => verificarLocalizacaoFuncionario(true)}
                         disabled={solicitandoLocalizacao}
                       >
-                        {solicitandoLocalizacao ? 'Solicitando localização...' : 'Permitir localização para bater ponto'}
+                        {solicitandoLocalizacao ? 'Solicitando localização...' : localizacaoBloqueada ? 'Abrir orientação para liberar localização' : 'Permitir localização para bater ponto'}
                       </button>
                     )}
 
