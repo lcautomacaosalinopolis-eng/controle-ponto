@@ -624,6 +624,31 @@ useEffect(() => {
     })
   }
 
+
+  function validarPrecisaoLocalizacao(localizacao) {
+    const LIMITE_PRECISAO_LOCALIZACAO_METROS = 200
+    const precisao = Number(localizacao?.precisao)
+
+    if (!Number.isFinite(precisao)) {
+      return {
+        valido: false,
+        mensagem: 'Não foi possível confirmar a precisão da localização. Ative o GPS/localização precisa do aparelho e tente novamente.',
+      }
+    }
+
+    if (precisao > LIMITE_PRECISAO_LOCALIZACAO_METROS) {
+      return {
+        valido: false,
+        mensagem: `Localização muito imprecisa (${Math.round(precisao)}m). Ative o GPS/localização precisa, saia de locais fechados se possível e tente novamente. O ponto só será liberado com precisão de até ${LIMITE_PRECISAO_LOCALIZACAO_METROS}m.`,
+      }
+    }
+
+    return {
+      valido: true,
+      mensagem: '',
+    }
+  }
+
   function formatarCoordenada(valor) {
     if (typeof valor !== 'number') return null
     return valor.toFixed(6)
@@ -1086,6 +1111,14 @@ setNovoFazAlmoco(true)
     localizacaoPonto = await obterLocalizacaoObrigatoria()
   } catch (erro) {
     mostrarMensagem(erro.message || 'Localização obrigatória. Autorize a localização do aparelho para bater o ponto.')
+    setRegistrandoPonto(false)
+    return
+  }
+
+  const validacaoLocalizacao = validarPrecisaoLocalizacao(localizacaoPonto)
+
+  if (!validacaoLocalizacao.valido) {
+    mostrarMensagem(validacaoLocalizacao.mensagem)
     setRegistrandoPonto(false)
     return
   }
