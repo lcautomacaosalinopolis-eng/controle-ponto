@@ -156,7 +156,7 @@ useEffect(() => {
     return
   }
 
-  verificarLocalizacaoFuncionario()
+  verificarLocalizacaoFuncionario(false)
 }, [usuarioLogado])
 
 useEffect(() => {
@@ -503,7 +503,7 @@ useEffect(() => {
     return Number.isNaN(timestampFallback) ? 0 : timestampFallback
   }
 
-  async function verificarLocalizacaoFuncionario() {
+  async function verificarLocalizacaoFuncionario(forcarPedido = true) {
     if (!usuarioLogado || usuarioLogado.tipo !== 'funcionario') return
 
     if (!navigator.geolocation) {
@@ -512,14 +512,33 @@ useEffect(() => {
       return
     }
 
+    if (!forcarPedido && navigator.permissions?.query) {
+      try {
+        const permissao = await navigator.permissions.query({ name: 'geolocation' })
+
+        if (permissao.state !== 'granted') {
+          setLocalizacaoAutorizada(false)
+          setSolicitandoLocalizacao(false)
+          return
+        }
+      } catch (erro) {
+        setLocalizacaoAutorizada(false)
+        setSolicitandoLocalizacao(false)
+        return
+      }
+    }
+
     setSolicitandoLocalizacao(true)
 
     try {
-      await obterLocalizacaoObrigatoria(false)
+      await obterLocalizacaoObrigatoria(true)
       setLocalizacaoAutorizada(true)
+      mostrarMensagem('Localização autorizada. Agora você pode bater o ponto.')
     } catch (erro) {
       setLocalizacaoAutorizada(false)
-      mostrarMensagem(erro.message || 'A localização é obrigatória para bater ponto.')
+      mostrarMensagem(
+        'Localização recusada. Clique novamente em permitir localização. Se o navegador bloqueou, abra as permissões do site e libere a localização.'
+      )
     } finally {
       setSolicitandoLocalizacao(false)
     }
@@ -3196,7 +3215,7 @@ faz_almoco: editFazAlmoco,
                           boxShadow: '0 14px 34px rgba(250, 204, 21, 0.22)',
                           opacity: solicitandoLocalizacao ? 0.75 : 1,
                         }}
-                        onClick={verificarLocalizacaoFuncionario}
+                        onClick={() => verificarLocalizacaoFuncionario(true)}
                         disabled={solicitandoLocalizacao}
                       >
                         {solicitandoLocalizacao ? 'Solicitando localização...' : 'Permitir localização para bater ponto'}
