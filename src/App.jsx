@@ -609,6 +609,35 @@ useEffect(() => {
     return `<a href="${localizacao.link}" target="_blank">Ver no mapa</a><br/><small>${localizacao.texto}${localizacao.precisao ? ' - ' + localizacao.precisao : ''}</small>`
   }
 
+
+  function horaLocalizacaoParaHTML(hora, localizacao) {
+    if (!hora || hora === '-') return '-'
+
+    return `${hora}<br/>${localizacaoParaHTML(localizacao)}`
+  }
+
+  function renderHoraLocalizacao(hora, localizacao) {
+    const horaTexto = hora || '-'
+
+    return (
+      <>
+        <span>{horaTexto}</span>
+        {horaTexto !== '-' && (
+          <>
+            <br />
+            {localizacao?.link ? (
+              <a href={localizacao.link} target="_blank" rel="noreferrer" style={{ color: '#0f766e', fontWeight: 'bold', fontSize: '13px' }}>
+                📍 Ver mapa
+              </a>
+            ) : (
+              <span style={{ color: '#991b1b', fontSize: '13px' }}>📍 Sem localização</span>
+            )}
+          </>
+        )}
+      </>
+    )
+  }
+
   async function login() {
     const emailDigitado = email.trim().toLowerCase()
     const senhaDigitada = senha.trim()
@@ -1586,11 +1615,10 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
           <tr>
             <th>Funcionário</th>
             <th>Data</th>
-            <th>Entrada</th>
-            <th>Saída almoço</th>
-            <th>Volta almoço</th>
-            <th>Saída casa</th>
-            <th>Localização</th>
+            <th>Entrada<br/><small>Localização</small></th>
+            <th>Saída almoço<br/><small>Localização</small></th>
+            <th>Volta almoço<br/><small>Localização</small></th>
+            <th>Saída casa<br/><small>Localização</small></th>
             <th>Status</th>
           </tr>
   `
@@ -1601,11 +1629,10 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id) {
       <tr>
         <td>${r.nome}</td>
         <td>${r.data}</td>
-        <td>${r.entrada || '-'}</td>
-        <td>${r.saidaAlmoco || '-'}</td>
-        <td>${r.voltaAlmoco || '-'}</td>
-        <td>${horaComVirada(r, 'saida')}</td>
-        <td>${localizacaoParaHTML(r.ultimoPontoLocalizacao)}</td>
+        <td>${horaLocalizacaoParaHTML(r.entrada, r.localizacaoEntrada)}</td>
+        <td>${horaLocalizacaoParaHTML(r.saidaAlmoco, r.localizacaoSaidaAlmoco)}</td>
+        <td>${horaLocalizacaoParaHTML(r.voltaAlmoco, r.localizacaoVoltaAlmoco)}</td>
+        <td>${horaLocalizacaoParaHTML(horaComVirada(r, 'saida'), r.localizacaoSaida)}</td>
         <td>${r.status}</td>
       </tr>
     `
@@ -1736,11 +1763,10 @@ function exportarRelatorioMensalPDF() {
         <table>
           <tr>
             <th>Data</th>
-            <th>Entrada</th>
-            <th>Saída almoço</th>
-            <th>Volta almoço</th>
-            <th>Saída casa</th>
-            <th>Localização</th>
+            <th>Entrada<br/><small>Localização</small></th>
+            <th>Saída almoço<br/><small>Localização</small></th>
+            <th>Volta almoço<br/><small>Localização</small></th>
+            <th>Saída casa<br/><small>Localização</small></th>
             <th>Status</th>
           </tr>
     `
@@ -1749,11 +1775,10 @@ function exportarRelatorioMensalPDF() {
       html += `
         <tr>
           <td>${dia.data}</td>
-          <td>${dia.entrada || '-'}</td>
-          <td>${dia.saidaAlmoco || '-'}</td>
-          <td>${dia.voltaAlmoco || '-'}</td>
-          <td>${horaComVirada(dia, 'saida')}</td>
-          <td>${localizacaoParaHTML(dia.ultimoPontoLocalizacao)}</td>
+          <td>${horaLocalizacaoParaHTML(dia.entrada, dia.localizacaoEntrada)}</td>
+          <td>${horaLocalizacaoParaHTML(dia.saidaAlmoco, dia.localizacaoSaidaAlmoco)}</td>
+          <td>${horaLocalizacaoParaHTML(dia.voltaAlmoco, dia.localizacaoVoltaAlmoco)}</td>
+          <td>${horaLocalizacaoParaHTML(horaComVirada(dia, 'saida'), dia.localizacaoSaida)}</td>
           <td>${dia.status}</td>
         </tr>
       `
@@ -2909,10 +2934,10 @@ faz_almoco: editFazAlmoco,
                                                 marginTop: '14px',
                                               }}
                                             >
-                                              <div><strong>Entrada</strong><br />{r.entrada || '-'}</div>
-                                              <div><strong>Saída almoço</strong><br />{r.saidaAlmoco || '-'}</div>
-                                              <div><strong>Volta almoço</strong><br />{r.voltaAlmoco || '-'}</div>
-                                              <div><strong>Saída casa</strong><br />{horaComVirada(r, 'saida')}</div>
+                                              <div><strong>Entrada</strong><br />{renderHoraLocalizacao(r.entrada, r.localizacaoEntrada)}</div>
+                                              <div><strong>Saída almoço</strong><br />{renderHoraLocalizacao(r.saidaAlmoco, r.localizacaoSaidaAlmoco)}</div>
+                                              <div><strong>Volta almoço</strong><br />{renderHoraLocalizacao(r.voltaAlmoco, r.localizacaoVoltaAlmoco)}</div>
+                                              <div><strong>Saída casa</strong><br />{renderHoraLocalizacao(horaComVirada(r, 'saida'), r.localizacaoSaida)}</div>
                                             </div>
                                           </div>
                                         ))}
@@ -3072,11 +3097,10 @@ faz_almoco: editFazAlmoco,
                                             <thead>
                                               <tr style={{ background: '#001f6b', color: '#fff' }}>
                                                 <th style={{ padding: '10px', textAlign: 'left' }}>Data</th>
-                                                <th style={{ padding: '10px', textAlign: 'left' }}>Entrada</th>
-                                                <th style={{ padding: '10px', textAlign: 'left' }}>Saída almoço</th>
-                                                <th style={{ padding: '10px', textAlign: 'left' }}>Volta almoço</th>
-                                                <th style={{ padding: '10px', textAlign: 'left' }}>Saída casa</th>
-                                                <th style={{ padding: '10px', textAlign: 'left' }}>Localização</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Entrada / Local</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Saída almoço / Local</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Volta almoço / Local</th>
+                                                <th style={{ padding: '10px', textAlign: 'left' }}>Saída casa / Local</th>
                                                 <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
                                               </tr>
                                             </thead>
@@ -3084,17 +3108,10 @@ faz_almoco: editFazAlmoco,
                                               {funcionario.dias.map((dia) => (
                                                 <tr key={`mensal-dia-${empresa.id}-${funcionario.usuario_id || funcionario.nome}-${dia.data_iso}`}>
                                                   <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.data}</td>
-                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.entrada || '-'}</td>
-                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.saidaAlmoco || '-'}</td>
-                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.voltaAlmoco || '-'}</td>
-                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{horaComVirada(dia, 'saida')}</td>
-                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>
-                                                    {dia.ultimoPontoLocalizacao?.link ? (
-                                                      <a href={dia.ultimoPontoLocalizacao.link} target="_blank" rel="noreferrer" style={{ color: '#0f766e', fontWeight: 'bold' }}>Ver mapa</a>
-                                                    ) : (
-                                                      'Não registrada'
-                                                    )}
-                                                  </td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{renderHoraLocalizacao(dia.entrada, dia.localizacaoEntrada)}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{renderHoraLocalizacao(dia.saidaAlmoco, dia.localizacaoSaidaAlmoco)}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{renderHoraLocalizacao(dia.voltaAlmoco, dia.localizacaoVoltaAlmoco)}</td>
+                                                  <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{renderHoraLocalizacao(horaComVirada(dia, 'saida'), dia.localizacaoSaida)}</td>
                                                   <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.status}</td>
                                                 </tr>
                                               ))}
