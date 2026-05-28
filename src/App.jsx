@@ -26,6 +26,10 @@ function App() {
   const [novoEmail, setNovoEmail] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
 const [novoFazAlmoco, setNovoFazAlmoco] = useState(true)
+const [novoEntradaPrevista, setNovoEntradaPrevista] = useState('')
+const [novoSaidaAlmocoPrevista, setNovoSaidaAlmocoPrevista] = useState('')
+const [novoVoltaAlmocoPrevista, setNovoVoltaAlmocoPrevista] = useState('')
+const [novoSaidaPrevista, setNovoSaidaPrevista] = useState('')
 const [salvarLogin, setSalvarLogin] = useState(false)
 const [funcionarioEditando, setFuncionarioEditando] = useState(null)
 
@@ -35,6 +39,10 @@ const [editEmail, setEditEmail] = useState('')
 
 const [editSenha, setEditSenha] = useState('')
 const [editFazAlmoco, setEditFazAlmoco] = useState(true)
+const [editEntradaPrevista, setEditEntradaPrevista] = useState('')
+const [editSaidaAlmocoPrevista, setEditSaidaAlmocoPrevista] = useState('')
+const [editVoltaAlmocoPrevista, setEditVoltaAlmocoPrevista] = useState('')
+const [editSaidaPrevista, setEditSaidaPrevista] = useState('')
 const [mostrarFuncionarios, setMostrarFuncionarios] = useState(false)
 const [buscaFuncionario, setBuscaFuncionario] = useState('')
 const [mostrarHistoricoDia, setMostrarHistoricoDia] = useState(false)
@@ -989,6 +997,39 @@ useEffect(() => {
     mostrarMensagem('Empresa criada com sucesso!')
   }
 
+
+  function calcularCargaHorariaPrevista(entrada, saidaAlmoco, voltaAlmoco, saida, fazAlmoco) {
+    const entradaMin = horaParaMinutos(entrada)
+    let saidaMin = horaParaMinutos(saida)
+
+    if (entradaMin === null || saidaMin === null) return null
+
+    if (saidaMin < entradaMin) {
+      saidaMin += 24 * 60
+    }
+
+    if (!fazAlmoco) {
+      return Math.max(0, saidaMin - entradaMin)
+    }
+
+    const saidaAlmocoMin = horaParaMinutos(saidaAlmoco)
+    const voltaAlmocoMin = horaParaMinutos(voltaAlmoco)
+
+    if (saidaAlmocoMin === null || voltaAlmocoMin === null) return null
+
+    const periodoManha = Math.max(0, saidaAlmocoMin - entradaMin)
+    let saidaFinal = saidaMin
+    let voltaAlmocoFinal = voltaAlmocoMin
+
+    if (saidaFinal < voltaAlmocoFinal) {
+      saidaFinal += 24 * 60
+    }
+
+    const periodoTarde = Math.max(0, saidaFinal - voltaAlmocoFinal)
+
+    return periodoManha + periodoTarde
+  }
+
   async function cadastrarFuncionario() {
     if (!novoNome || !novoEmail || !novaSenha) {
       mostrarMensagem('Preencha todos os campos.')
@@ -1008,6 +1049,17 @@ useEffect(() => {
         email: novoEmail.toLowerCase(),
         senha: novaSenha,
         faz_almoco: novoFazAlmoco,
+        entrada_prevista: novoEntradaPrevista || null,
+        saida_almoco_prevista: novoFazAlmoco ? novoSaidaAlmocoPrevista || null : null,
+        volta_almoco_prevista: novoFazAlmoco ? novoVoltaAlmocoPrevista || null : null,
+        saida_prevista: novoSaidaPrevista || null,
+        carga_horaria_minutos: calcularCargaHorariaPrevista(
+          novoEntradaPrevista,
+          novoSaidaAlmocoPrevista,
+          novoVoltaAlmocoPrevista,
+          novoSaidaPrevista,
+          novoFazAlmoco
+        ),
         tipo: 'funcionario',
         empresa_id: empresaId,
         ativo: true,
@@ -1023,6 +1075,10 @@ useEffect(() => {
     setNovoEmail('')
     setNovaSenha('')
 setNovoFazAlmoco(true)
+    setNovoEntradaPrevista('')
+    setNovoSaidaAlmocoPrevista('')
+    setNovoVoltaAlmocoPrevista('')
+    setNovoSaidaPrevista('')
     await carregarUsuarios()
     await registrarAuditoria('CADASTRAR_FUNCIONARIO', `Funcionário cadastrado: ${novoNome}.`)
     mostrarMensagem('Funcionário cadastrado com sucesso!')
@@ -1472,6 +1528,11 @@ function criarLinhaJornada(registro) {
     localizacaoVoltaAlmoco: null,
     localizacaoSaida: null,
     faz_almoco: usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.faz_almoco !== false,
+    entrada_prevista: usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.entrada_prevista || '',
+    saida_almoco_prevista: usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.saida_almoco_prevista || '',
+    volta_almoco_prevista: usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.volta_almoco_prevista || '',
+    saida_prevista: usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.saida_prevista || '',
+    carga_horaria_minutos: Number(usuarios.find((u) => String(u.id) === String(registro.usuario_id))?.carga_horaria_minutos || 0),
   }
 }
 
@@ -1876,6 +1937,22 @@ async function lancarCompensacaoBancoHoras() {
 }
 
 
+function obterCargaHorariaPrevistaBancoHoras(dia) {
+  const cargaSalva = Number(dia?.carga_horaria_minutos || 0)
+
+  if (cargaSalva > 0) return cargaSalva
+
+  const cargaCalculada = calcularCargaHorariaPrevista(
+    dia?.entrada_prevista || '',
+    dia?.saida_almoco_prevista || '',
+    dia?.volta_almoco_prevista || '',
+    dia?.saida_prevista || '',
+    dia?.faz_almoco !== false
+  )
+
+  return cargaCalculada || CARGA_HORARIA_PADRAO_MINUTOS
+}
+
 function gerarBancoHorasDetalhado(empresaId = usuarioLogado?.empresa_id) {
   const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
 
@@ -1922,18 +1999,20 @@ function gerarBancoHorasDetalhado(empresaId = usuarioLogado?.empresa_id) {
         }
       }
 
-      const saldoDia = minutosTrabalhados - CARGA_HORARIA_PADRAO_MINUTOS
+      const cargaPrevistaDia = obterCargaHorariaPrevistaBancoHoras(dia)
+      const saldoDia = minutosTrabalhados - cargaPrevistaDia
 
       return {
         ...dia,
         minutosTrabalhados,
+        cargaPrevistaDia,
         saldoDia,
         credito: saldoDia > 0 ? saldoDia : 0,
         debito: saldoDia < 0 ? Math.abs(saldoDia) : 0,
         tipoMovimentoBancoHoras: saldoDia > 0 ? 'Crédito' : saldoDia < 0 ? 'Débito' : 'Zerado',
         observacaoBancoHoras: dia.faz_almoco
-          ? 'Cálculo com intervalo de almoço: manhã + tarde.'
-          : 'Cálculo sem intervalo de almoço: saída - entrada.',
+          ? `Cálculo com intervalo de almoço. Jornada prevista: ${formatarMinutosBancoHoras(cargaPrevistaDia)}.`
+          : `Cálculo sem intervalo de almoço. Jornada prevista: ${formatarMinutosBancoHoras(cargaPrevistaDia)}.`, 
       }
     })
 
@@ -2635,6 +2714,23 @@ async function salvarEdicaoMasterEmpresa() {
   mostrarMensagem('Dados do master da empresa alterados com sucesso.')
 }
 
+function textoJornadaFuncionario(usuario) {
+  if (!usuario || usuario.tipo !== 'funcionario') return ''
+
+  const fazAlmoco = usuario.faz_almoco !== false
+  const entrada = usuario.entrada_prevista || '--:--'
+  const saida = usuario.saida_prevista || '--:--'
+  const saidaAlmoco = usuario.saida_almoco_prevista || '--:--'
+  const voltaAlmoco = usuario.volta_almoco_prevista || '--:--'
+  const carga = Number(usuario.carga_horaria_minutos || 0)
+
+  if (fazAlmoco) {
+    return `Jornada: ${entrada} → ${saidaAlmoco} / ${voltaAlmoco} → ${saida}${carga > 0 ? ` • ${formatarMinutosBancoHoras(carga)}` : ''}`
+  }
+
+  return `Jornada: ${entrada} → ${saida}${carga > 0 ? ` • ${formatarMinutosBancoHoras(carga)}` : ''}`
+}
+
 function abrirEdicaoFuncionario(usuario) {
 
   setFuncionarioEditando(usuario)
@@ -2645,6 +2741,10 @@ function abrirEdicaoFuncionario(usuario) {
 
   setEditSenha(usuario.senha)
 setEditFazAlmoco(usuario.faz_almoco !== false)
+  setEditEntradaPrevista(usuario.entrada_prevista || '')
+  setEditSaidaAlmocoPrevista(usuario.saida_almoco_prevista || '')
+  setEditVoltaAlmocoPrevista(usuario.volta_almoco_prevista || '')
+  setEditSaidaPrevista(usuario.saida_prevista || '')
 
   mostrarMensagem(
     'Editando funcionário: ' + usuario.nome
@@ -2676,6 +2776,17 @@ async function salvarEdicaoFuncionario() {
 
       senha: editSenha,
 faz_almoco: editFazAlmoco,
+      entrada_prevista: editEntradaPrevista || null,
+      saida_almoco_prevista: editFazAlmoco ? editSaidaAlmocoPrevista || null : null,
+      volta_almoco_prevista: editFazAlmoco ? editVoltaAlmocoPrevista || null : null,
+      saida_prevista: editSaidaPrevista || null,
+      carga_horaria_minutos: calcularCargaHorariaPrevista(
+        editEntradaPrevista,
+        editSaidaAlmocoPrevista,
+        editVoltaAlmocoPrevista,
+        editSaidaPrevista,
+        editFazAlmoco
+      ),
 
     })
     .eq(
@@ -2699,6 +2810,10 @@ faz_almoco: editFazAlmoco,
   setEditEmail('')
 
   setEditSenha('')
+  setEditEntradaPrevista('')
+  setEditSaidaAlmocoPrevista('')
+  setEditVoltaAlmocoPrevista('')
+  setEditSaidaPrevista('')
 
   await carregarUsuarios()
   await registrarAuditoria('EDITAR_FUNCIONARIO', `Funcionário alterado: ${editNome}.`)
@@ -3217,6 +3332,42 @@ faz_almoco: editFazAlmoco,
                         {' '}Intervalo para almoço
                       </label>
 
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Entrada prevista</label>
+                          <input type="time" style={inputStyle} value={novoEntradaPrevista} onChange={(e) => setNovoEntradaPrevista(e.target.value)} />
+                        </div>
+
+                        {novoFazAlmoco && (
+                          <div>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Saída almoço</label>
+                            <input type="time" style={inputStyle} value={novoSaidaAlmocoPrevista} onChange={(e) => setNovoSaidaAlmocoPrevista(e.target.value)} />
+                          </div>
+                        )}
+
+                        {novoFazAlmoco && (
+                          <div>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Volta almoço</label>
+                            <input type="time" style={inputStyle} value={novoVoltaAlmocoPrevista} onChange={(e) => setNovoVoltaAlmocoPrevista(e.target.value)} />
+                          </div>
+                        )}
+
+                        <div>
+                          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Saída prevista</label>
+                          <input type="time" style={inputStyle} value={novoSaidaPrevista} onChange={(e) => setNovoSaidaPrevista(e.target.value)} />
+                        </div>
+                      </div>
+
+                      <p style={{ color: '#0757d8', fontWeight: 'bold', marginTop: '-6px', marginBottom: '18px' }}>
+                        Carga prevista: {formatarMinutosBancoHoras(calcularCargaHorariaPrevista(
+                          novoEntradaPrevista,
+                          novoSaidaAlmocoPrevista,
+                          novoVoltaAlmocoPrevista,
+                          novoSaidaPrevista,
+                          novoFazAlmoco
+                        ) || CARGA_HORARIA_PADRAO_MINUTOS)}
+                      </p>
+
                       <button style={buttonStyle} onClick={cadastrarFuncionario}>
                         Cadastrar
                       </button>
@@ -3360,6 +3511,8 @@ faz_almoco: editFazAlmoco,
                                     <br />
                                     Status: {u.ativo === false ? 'Bloqueado' : 'Ativo'}
                                     <br />
+                                    {textoJornadaFuncionario(u)}
+                                    <br />
                                     <br />
 
                                     {u.ativo === false ? (
@@ -3397,6 +3550,42 @@ faz_almoco: editFazAlmoco,
                                           <input type="checkbox" checked={editFazAlmoco} onChange={(e) => setEditFazAlmoco(e.target.checked)} />
                                           {' '}Intervalo para almoço
                                         </label>
+
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+                                          <div>
+                                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Entrada prevista</label>
+                                            <input type="time" style={inputStyle} value={editEntradaPrevista} onChange={(e) => setEditEntradaPrevista(e.target.value)} />
+                                          </div>
+
+                                          {editFazAlmoco && (
+                                            <div>
+                                              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Saída almoço</label>
+                                              <input type="time" style={inputStyle} value={editSaidaAlmocoPrevista} onChange={(e) => setEditSaidaAlmocoPrevista(e.target.value)} />
+                                            </div>
+                                          )}
+
+                                          {editFazAlmoco && (
+                                            <div>
+                                              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Volta almoço</label>
+                                              <input type="time" style={inputStyle} value={editVoltaAlmocoPrevista} onChange={(e) => setEditVoltaAlmocoPrevista(e.target.value)} />
+                                            </div>
+                                          )}
+
+                                          <div>
+                                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Saída prevista</label>
+                                            <input type="time" style={inputStyle} value={editSaidaPrevista} onChange={(e) => setEditSaidaPrevista(e.target.value)} />
+                                          </div>
+                                        </div>
+
+                                        <p style={{ color: '#0757d8', fontWeight: 'bold', marginTop: '-6px', marginBottom: '18px' }}>
+                                          Carga prevista: {formatarMinutosBancoHoras(calcularCargaHorariaPrevista(
+                                            editEntradaPrevista,
+                                            editSaidaAlmocoPrevista,
+                                            editVoltaAlmocoPrevista,
+                                            editSaidaPrevista,
+                                            editFazAlmoco
+                                          ) || CARGA_HORARIA_PADRAO_MINUTOS)}
+                                        </p>
 
                                         <button style={buttonStyle} onClick={salvarEdicaoFuncionario}>
                                           Salvar Alterações
@@ -3735,7 +3924,7 @@ faz_almoco: editFazAlmoco,
                   <div style={sectionStyle}>
                     <h2 style={{ color: '#071638', marginTop: 0 }}>Banco de Horas</h2>
                     <p style={{ color: '#586174', marginTop: 0 }}>
-                      Histórico detalhado de créditos, débitos e saldo por funcionário. O cálculo respeita o cadastro: com almoço usa 4 batidas; sem almoço usa apenas entrada e saída.
+                      Histórico detalhado de créditos, débitos e saldo por funcionário. O cálculo respeita a jornada individual cadastrada no funcionário; se não houver jornada cadastrada, usa 8h como padrão de segurança.
                     </p>
 
                     <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>
@@ -4055,6 +4244,7 @@ faz_almoco: editFazAlmoco,
                                                   <th style={{ padding: '10px', textAlign: 'left' }}>Volta almoço</th>
                                                   <th style={{ padding: '10px', textAlign: 'left' }}>Saída</th>
                                                   <th style={{ padding: '10px', textAlign: 'left' }}>Trabalhado</th>
+                                                  <th style={{ padding: '10px', textAlign: 'left' }}>Jornada prevista</th>
                                                   <th style={{ padding: '10px', textAlign: 'left' }}>Movimento</th>
                                                   <th style={{ padding: '10px', textAlign: 'left' }}>Saldo do dia</th>
                                                   <th style={{ padding: '10px', textAlign: 'left' }}>Validade</th>
@@ -4072,6 +4262,9 @@ faz_almoco: editFazAlmoco,
                                                     <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{horaComVirada(dia, 'saida')}</td>
                                                     <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>
                                                       {dia.minutosTrabalhados === null ? '-' : formatarMinutosBancoHoras(dia.minutosTrabalhados)}
+                                                    </td>
+                                                    <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>
+                                                      {dia.status === 'Compensado' ? 'Lançamento manual' : dia.minutosTrabalhados === null ? '-' : formatarMinutosBancoHoras(dia.cargaPrevistaDia || CARGA_HORARIA_PADRAO_MINUTOS)}
                                                     </td>
                                                     <td style={{ padding: '10px', borderBottom: '1px solid #e6edf7' }}>{dia.tipoMovimentoBancoHoras}</td>
                                                     <td
