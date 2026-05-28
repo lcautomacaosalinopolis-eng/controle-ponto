@@ -38,6 +38,24 @@ const [editFazAlmoco, setEditFazAlmoco] = useState(true)
 const [mostrarFuncionarios, setMostrarFuncionarios] = useState(false)
 const [buscaFuncionario, setBuscaFuncionario] = useState('')
 const [mostrarHistoricoDia, setMostrarHistoricoDia] = useState(false)
+
+
+const dashboardGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: window.innerWidth <= 768 ? '1fr 1fr' : 'repeat(auto-fit, minmax(320px, 1fr))',
+  gap: '18px',
+  alignItems: 'start',
+}
+
+const compactSectionStyle = {
+  background: '#ffffff',
+  borderRadius: '24px',
+  padding: window.innerWidth <= 768 ? '20px' : '28px',
+  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
+  border: '1px solid #e2e8f0',
+  overflow: 'hidden',
+}
+
 const [mostrarRelatorioMensal, setMostrarRelatorioMensal] = useState(false)
 const [notificacoesPontoAtivas, setNotificacoesPontoAtivas] = useState(false)
 const [auditoria, setAuditoria] = useState([])
@@ -2433,7 +2451,7 @@ faz_almoco: editFazAlmoco,
 
               {usuarioLogado.tipo === 'programador' && (
                 <>
-                  <div style={sectionStyle}>
+                  <div style={compactSectionStyle}>
                     <p style={{ color: '#0757d8', fontWeight: 'bold', margin: '0 0 8px' }}>▦ Painel</p>
                     <h1 style={{ color: '#071638', fontSize: '38px', lineHeight: '1.05', margin: '0 0 10px' }}>
                       Programador / Multiempresas
@@ -2449,7 +2467,7 @@ faz_almoco: editFazAlmoco,
                     </div>
                   </div>
 
-                  <div style={sectionStyle}>
+                  <div style={compactSectionStyle}>
                     <h2 style={{ color: '#0757d8', marginTop: 0 }}>▥ Criar Empresa</h2>
                     <p style={{ color: '#586174' }}>Preencha os dados abaixo para cadastrar uma nova empresa.</p>
 
@@ -2462,7 +2480,7 @@ faz_almoco: editFazAlmoco,
                     </button>
                   </div>
 
-                  <div style={sectionStyle}>
+                  <div style={compactSectionStyle}>
                     <h2 style={{ color: '#071638', marginTop: 0 }}>Empresas Cadastradas</h2>
                     {empresas.map((empresa) => (
                       <div
@@ -2575,7 +2593,7 @@ faz_almoco: editFazAlmoco,
                     ))}
                   </div>
 
-                  <div style={sectionStyle}>
+                  <div style={compactSectionStyle}>
                     <div
                       style={{
                         display: 'flex',
@@ -2688,7 +2706,7 @@ faz_almoco: editFazAlmoco,
               {(usuarioLogado.tipo === 'master' || usuarioLogado.tipo === 'programador') && (
                 <>
                   {(usuarioLogado.tipo === 'master' || (usuarioLogado.tipo === 'programador' && empresaSelecionada)) && (
-                    <div style={sectionStyle}>
+                    <div style={compactSectionStyle}>
                       <h2 style={{ color: '#0757d8', marginTop: 0 }}>Cadastrar Funcionário</h2>
 
                       <input style={inputStyle} placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
@@ -2707,7 +2725,7 @@ faz_almoco: editFazAlmoco,
                   )}
 
                   {usuarioLogado.tipo === 'master' && (
-                    <div style={sectionStyle}>
+                    <div style={compactSectionStyle}>
                       <div
                         style={{
                           display: 'flex',
@@ -2752,7 +2770,7 @@ faz_almoco: editFazAlmoco,
                     </div>
                   )}
 
-                  <div style={sectionStyle}>
+                  <div style={compactSectionStyle}>
                     <div
                       style={{
                         display: 'flex',
@@ -2917,7 +2935,7 @@ faz_almoco: editFazAlmoco,
                     )}
                   </div>
 
-                  <div style={sectionStyle}>
+                  <div style={compactSectionStyle}>
                     <div
                       style={{
                         display: 'flex',
