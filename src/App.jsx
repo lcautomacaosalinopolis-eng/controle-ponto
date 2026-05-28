@@ -1571,7 +1571,7 @@ function gerarRelatorioDiarioOrganizado(empresaId = usuarioLogado?.empresa_id) {
 function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id, mesReferencia = mesRelatorioMensal, funcionarioReferencia = funcionarioRelatorioMensal) {
   const idEmpresa = empresaId || empresaSelecionada || usuarioLogado?.empresa_id
 
-  if (!idEmpresa || !mesRelatorioMensal) return []
+  if (!idEmpresa || !mesReferencia) return []
 
   const inicioFiltro = horaInicioRelatorioMensal ? horaParaMinutos(horaInicioRelatorioMensal) : null
   const fimFiltro = horaFimRelatorioMensal ? horaParaMinutos(horaFimRelatorioMensal) : null
@@ -1580,11 +1580,11 @@ function gerarRelatorioMensalOrganizado(empresaId = usuarioLogado?.empresa_id, m
   pontos
     .filter((p) => {
       if (p.empresa_id !== idEmpresa) return false
-      if (!p.data_iso?.startsWith(mesRelatorioMensal)) return false
+      if (!p.data_iso?.startsWith(mesReferencia)) return false
 
       if (
-        funcionarioRelatorioMensal !== 'todos' &&
-        String(p.usuario_id) !== String(funcionarioRelatorioMensal)
+        funcionarioReferencia !== 'todos' &&
+        String(p.usuario_id) !== String(funcionarioReferencia)
       ) {
         return false
       }
